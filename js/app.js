@@ -600,16 +600,16 @@ var App = class App {
 
     Components.showToast(`${totalCount}件のファイルを保存しました`, 'success');
 
-    // Generate deep analysis for uploaded content
-    const adviceText = textForAnalysis.join('\n');
-    if (adviceText) {
-      const analysis = this.generateDeepAnalysis(adviceText);
-      store.set('latestFeedback', analysis);
-    }
-
-    // Re-render to show analysis
+    // Re-render and run AI analysis for uploaded content
     if (this.currentPage === 'dashboard') this.navigate('dashboard');
     else if (this.currentPage === 'data-input') this.navigate('data-input');
+
+    const adviceText = textForAnalysis.join('\n');
+    if (adviceText) {
+      const feedbackEl = document.getElementById('dash-ai-feedback');
+      this.showFeedbackLoading(feedbackEl, 'アップロードデータを分析中...');
+      this.runBackgroundAnalysis(adviceText, feedbackEl);
+    }
   }
 
   showFileAnalysisResult(container, uploadSummary) {
@@ -756,20 +756,13 @@ var App = class App {
     document.getElementById('text-input-content').value = '';
     document.getElementById('text-input-title').value = '';
 
-    // Generate deep analysis and save
-    const analysis = this.generateDeepAnalysis(content);
-    store.set('latestFeedback', analysis);
-
-    // Navigate to dashboard to show analysis
+    // Navigate to dashboard and run AI analysis
     this.navigate('dashboard');
-
-    // Run API analysis in background if available
-    const apiKey = aiEngine.getApiKey(store.get('selectedModel'));
-    if (apiKey) {
-      setTimeout(() => this.runBackgroundAnalysis(content, document.getElementById('dash-ai-feedback')), 500);
-    }
-
     Components.showToast('保存しました', 'success');
+
+    const feedbackEl = document.getElementById('dash-ai-feedback');
+    this.showFeedbackLoading(feedbackEl, '入力内容を分析中...');
+    this.runBackgroundAnalysis(content, feedbackEl);
   }
 
   showInstantAdvice(newText, category) {
@@ -785,42 +778,15 @@ var App = class App {
         <div class="card-body" style="color:var(--text-muted);font-size:13px">入力内容を分析しています...</div>
       </div>`;
 
-    // Small delay to let UI update, then generate advice
-    setTimeout(() => {
-      const advice = this.generateInstantAdvice(newText, category);
-      adviceArea.innerHTML = `
-        <div class="card" style="border-color:var(--accent-border)">
-          <div class="card-header" style="background:var(--accent-bg)">
-            <span class="card-title">🤖 アドバイス</span>
-            <span style="font-size:11px;color:var(--text-muted)">${new Date().toLocaleTimeString('ja-JP')}</span>
-          </div>
-          <div class="card-body">
-            ${advice.alerts.map(a => `
-              <div style="padding:10px 14px;background:${a.level === 'warning' ? 'var(--warning-bg)' : a.level === 'danger' ? 'var(--danger-bg)' : 'var(--info-bg)'};border-left:3px solid ${a.level === 'warning' ? 'var(--warning)' : a.level === 'danger' ? 'var(--danger)' : 'var(--info)'};border-radius:0 8px 8px 0;margin-bottom:10px;font-size:13px">
-                ${a.message}
-              </div>
-            `).join('')}
-            <div style="font-size:13px;line-height:1.8;color:var(--text-secondary);white-space:pre-wrap">${advice.text}</div>
-            ${advice.actions.length > 0 ? `
-              <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
-                <h4 style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">推奨アクション</h4>
-                ${advice.actions.map(a => `
-                  <div style="display:flex;align-items:start;gap:8px;margin-bottom:6px;font-size:13px">
-                    <span style="color:var(--accent)">→</span>
-                    <span>${a}</span>
-                  </div>
-                `).join('')}
-              </div>
-            ` : ''}
-          </div>
-        </div>`;
-
+    // Run AI analysis asynchronously
+    this.runBackgroundAnalysis(newText, adviceArea).then(() => {
       const status = document.getElementById('text-save-status');
       if (status) status.textContent = 'AI分析完了';
-    }, 300);
+    });
   }
 
-  generateInstantAdvice(text, category) {
+  // [REMOVED] generateInstantAdvice - replaced by AI API calls via QUICK_ANALYSIS_PROMPT
+  _legacy_generateInstantAdvice(text, category) {
     const lower = text.toLowerCase();
     const alerts = [];
     const actions = [];
@@ -1437,28 +1403,15 @@ URL/連絡先：（あれば）`;
       const apiKey = aiEngine.getApiKey(store.get('selectedModel'));
       let responseText;
 
-      if (apiKey) {
-        // Use real API
-        const disease = store.get('selectedDisease');
-        const systemPrompt = `あなたは${disease?.fullName || '慢性疾患'}の専門家です。患者に寄り添い、最新のエビデンスに基づいたアドバイスを提供してください。`;
-        const userData = aiEngine.collectCurrentUserData();
-        const response = await aiEngine.callModel(
-          store.get('selectedModel'),
-          `${systemPrompt}\n\nユーザーの健康データ: ${JSON.stringify(userData.current)}\n\nユーザーの質問: ${msg}`,
-          { maxTokens: 2048 }
-        );
-        responseText = typeof response === 'string' ? response : (response.summary || JSON.stringify(response));
-      } else {
-        // Local keyword-based response (no API key needed)
-        const advice = this.generateInstantAdvice(msg, 'chat');
-        responseText = advice.text;
-        if (advice.alerts.length > 0) {
-          responseText = advice.alerts.map(a => '⚠️ ' + a.message).join('\n') + '\n\n' + responseText;
-        }
-        if (advice.actions.length > 0) {
-          responseText += '\n\n📋 推奨アクション:\n' + advice.actions.map(a => '→ ' + a).join('\n');
-        }
-      }
+      // Always use AI API for chat responses
+      const template = (typeof QUICK_ANALYSIS_PROMPT !== 'undefined') ? QUICK_ANALYSIS_PROMPT : '';
+      const prompt = this.buildPrompt(template, { '{{USER_INPUT}}': msg });
+      const response = await aiEngine.callModel(
+        store.get('selectedModel') || 'gpt-4o',
+        prompt,
+        { maxTokens: 2048 }
+      );
+      responseText = typeof response === 'string' ? response : (response.summary || JSON.stringify(response));
 
       history.push({ role: 'assistant', content: responseText, timestamp: new Date().toISOString() });
       store.set('conversationHistory', history);
@@ -1494,40 +1447,12 @@ URL/連絡先：（あれば）`;
 
     Components.showToast(`会話記録を取り込みました（${parsed.entries.length}発言, ${parsed.wordCount}語）`, 'success');
 
-    // Generate deep analysis including conversation patterns
-    const analysis = this.generateDeepAnalysis('[会話データ] ' + title + '\n' + text);
-    store.set('latestFeedback', analysis);
-
-    // Navigate to dashboard to show analysis
+    // Navigate to dashboard and run AI analysis
     this.navigate('dashboard');
-
-    // Run API analysis for deeper insights
-    const apiKey = aiEngine.getApiKey(store.get('selectedModel'));
-    if (apiKey) {
-      const diseases = store.get('selectedDiseases') || [];
-      const profile = store.get('userProfile') || {};
-      const prompt = `以下はPlaud（音声文字起こしデバイス）から取得した会話の文字起こしです。
-この会話を分析し、ユーザーの健康状態とストレスレベルを評価してください。
-
-【会話タイトル】${title}
-【ユーザー情報】疾患: ${diseases.join(', ') || '未設定'}、居住地: ${profile.location || '日本'}
-
-【会話内容】
-${text.substring(0, 8000)}
-
-【分析してください】
-1. 会話の要約（3行以内）
-2. 検出された体調・症状の言及
-3. ストレスレベルの評価（1-10）と根拠
-4. 精神状態の評価（気分、不安、エネルギー）
-5. 医師との会話の場合：診断内容・処方変更・指示事項の抽出
-6. 具体的なアクション提案（3-5項目）
-7. 養生の視点からのアドバイス`;
-
-      setTimeout(() => {
-        this.runBackgroundAnalysis(prompt, document.getElementById('dash-ai-feedback'));
-      }, 500);
-    }
+    const conversationInput = `[会話データ] ${title}\n${text.substring(0, 8000)}`;
+    const feedbackEl = document.getElementById('dash-ai-feedback');
+    this.showFeedbackLoading(feedbackEl, '会話データを分析中...');
+    this.runBackgroundAnalysis(conversationInput, feedbackEl);
   }
 
   connectFitbit() {
@@ -1722,8 +1647,67 @@ ${text.substring(0, 8000)}
     return '';
   }
 
+  // ---- Prompt Template Helper ----
+  buildPrompt(template, extraVars = {}) {
+    const diseases = store.get('selectedDiseases') || [];
+    const profile = store.get('userProfile') || {};
+    const recentEntries = (store.get('textEntries') || []).slice(-5).map(e => e.content || '').join('\n---\n');
+
+    const vars = {
+      '{{SELECTED_DISEASES}}': diseases.join(', ') || '未設定',
+      '{{LOCATION}}': profile.location || '日本',
+      '{{AGE}}': profile.age || '未設定',
+      '{{RECENT_ENTRIES}}': (recentEntries || '').substring(0, 3000),
+      '{{DATE}}': new Date().toLocaleDateString('ja-JP'),
+      ...extraVars
+    };
+
+    let result = template;
+    for (const [key, value] of Object.entries(vars)) {
+      result = result.split(key).join(value);
+    }
+    return result;
+  }
+
+  // ---- Show AI Response in Feedback Area ----
+  showAIFeedback(feedbackEl, response, tag = 'AI応答') {
+    if (!feedbackEl || typeof response !== 'string' || response.length < 20) return;
+    feedbackEl.innerHTML = `
+      <div class="card" style="border-left:4px solid var(--success)">
+        <div class="card-header" style="padding:10px 16px">
+          <span style="font-size:13px;font-weight:600">詳細分析</span>
+          <span class="tag tag-success" style="font-size:9px">${tag}</span>
+        </div>
+        <div class="card-body" style="padding:14px 16px">
+          <div style="font-size:13px;color:var(--text-primary);line-height:1.8;white-space:pre-wrap">${Components.formatMarkdown(response)}</div>
+        </div>
+      </div>`;
+
+    // Save to latestFeedback for persistence
+    store.set('latestFeedback', {
+      timestamp: new Date().toISOString(),
+      detected: ['AI分析'],
+      urgency: 'normal',
+      isPositive: false,
+      sections: [{ title: '分析結果', icon: '🤖', content: response.substring(0, 2000) }],
+      rawResponse: response
+    });
+  }
+
+  // ---- Show Loading State in Feedback Area ----
+  showFeedbackLoading(feedbackEl, message = 'AIが分析中です...') {
+    if (!feedbackEl) return;
+    feedbackEl.innerHTML = `
+      <div class="card" style="border-left:4px solid var(--accent)">
+        <div class="card-body" style="padding:20px;text-align:center">
+          <div class="spinner" style="width:24px;height:24px;border-width:2px;margin:0 auto 10px"></div>
+          <div style="font-size:13px;color:var(--text-muted)">${message}</div>
+        </div>
+      </div>`;
+  }
+
   // ---- Dashboard Quick Input ----
-  dashQuickSubmit() {
+  async dashQuickSubmit() {
     const input = document.getElementById('dash-quick-input');
     if (!input || !input.value.trim()) {
       Components.showToast('テキストを入力してください', 'error');
@@ -1750,260 +1734,37 @@ ${text.substring(0, 8000)}
 
     input.value = '';
 
-    // Generate deep structured analysis and save to store
-    const analysis = this.generateDeepAnalysis(content);
-    store.set('latestFeedback', analysis);
-
-    // Re-render dashboard with feedback
+    // Re-render dashboard and show loading state
     this.navigate('dashboard');
+    const feedbackEl = document.getElementById('dash-ai-feedback');
+    this.showFeedbackLoading(feedbackEl, '入力内容を分析中...');
 
-    // Run API analysis in background if available
-    const apiKey = aiEngine.getApiKey(store.get('selectedModel'));
-    if (apiKey) {
-      this.runBackgroundAnalysis(content, document.getElementById('dash-ai-feedback'));
-    }
+    // Always call AI API for analysis
+    await this.runBackgroundAnalysis(content, feedbackEl);
   }
 
-  // Deep structured analysis of any user input
-  generateDeepAnalysis(text) {
-    const lower = text.toLowerCase();
-    const sections = [];
-
-    // 1. Content Classification
-    const detected = [];
-    if (/痛|疼痛|頭痛|腰痛|関節/.test(lower)) detected.push('疼痛');
-    if (/疲|だるい|倦怠|しんどい|動けな/.test(lower)) detected.push('疲労');
-    if (/眠|不眠|寝|睡眠|起き/.test(lower)) detected.push('睡眠');
-    if (/鬱|不安|孤独|辛|メンタル|焦燥|イライラ|死|絶望/.test(lower)) detected.push('精神');
-    if (/薬|ツートラム|リンデロン|エチゾラム|ステロイド|プレドニゾ|カロナール|処方|服薬|飲[んむ]/.test(lower)) detected.push('服薬');
-    if (/食[べ事]|ご飯|栄養|サプリ|ビタミン|マグネシウム|コエンザイム|NMN/.test(lower)) detected.push('栄養');
-    if (/検査|血液|CRP|数値|結果|フェリチン|甲状腺|TSH/.test(lower)) detected.push('検査');
-    if (/先生|医師|診察|クリニック|病院|山村|川村/.test(lower)) detected.push('診察');
-    if (/運動|ジム|散歩|ヨガ|ストレッチ|歩/.test(lower)) detected.push('運動');
-    if (/気圧|天候|天気|気象/.test(lower)) detected.push('気象');
-    if (/生理|月経|PMS|ホルモン|更年期/.test(lower)) detected.push('ホルモン');
-    if (/風呂|入浴|エプソムソルト|温泉/.test(lower)) detected.push('入浴');
-    if (/瞑想|呼吸|マインドフル|坐禅/.test(lower)) detected.push('瞑想');
-    if (/PEM|労作後/.test(lower)) detected.push('PEM');
-    if (/お腹|下痢|便秘|吐き気|胃|腸/.test(lower)) detected.push('消化器');
-    if (/会話|文字起こし|plaud|transcript|先生.*言|診察.*記録|ミーティング|電話/.test(lower)) detected.push('会話データ');
-    if (/めまい|ふらつき|立ちくらみ/.test(lower)) detected.push('めまい');
-    // Extended detection
-    if (/体重|kg|キロ|太|痩|ダイエット|体脂肪|BMI/.test(lower)) detected.push('体重');
-    if (/心拍|HR|HRV|脈|bpm|血圧|mmHg/.test(lower)) detected.push('バイタル');
-    if (/体温|熱|°C|度|発熱/.test(lower)) detected.push('体温');
-    if (/SpO2|酸素|息苦し|呼吸/.test(lower)) detected.push('呼吸');
-    if (/肌|皮膚|かゆ|湿疹|蕁麻疹|アトピー|ニキビ/.test(lower)) detected.push('皮膚');
-    if (/尿|頻尿|排尿|腎臓|クレアチニン/.test(lower)) detected.push('泌尿器');
-    if (/目|視力|ドライアイ|眼/.test(lower)) detected.push('眼');
-    if (/耳|聴力|耳鳴り|難聴/.test(lower)) detected.push('耳');
-    if (/歯|口|口内炎|歯茎/.test(lower)) detected.push('口腔');
-    if (/髪|脱毛|薄毛|抜け毛/.test(lower)) detected.push('毛髪');
-    if (/酒|アルコール|飲酒|ビール|ワイン/.test(lower)) detected.push('飲酒');
-    if (/コーヒー|カフェイン|お茶|紅茶/.test(lower)) detected.push('カフェイン');
-    if (/水|水分|脱水|飲む量/.test(lower)) detected.push('水分');
-    if (/旅行|出張|飛行機|移動|時差/.test(lower)) detected.push('移動');
-    if (/仕事|プロジェクト|締切|ミーティング|作業/.test(lower)) detected.push('仕事');
-    if (/お金|費用|医療費|保険|経済|金銭/.test(lower)) detected.push('経済');
-    if (/家族|妻|夫|子供|親|母|父|兄弟|姉妹/.test(lower)) detected.push('家族');
-    if (/友人|友達|恋人|彼女|彼氏|パートナー/.test(lower)) detected.push('人間関係');
-    if (/遺伝子|SNP|HLA|ゲノム|DNA/.test(lower)) detected.push('遺伝子');
-    if (/MRI|CT|X線|レントゲン|超音波|エコー/.test(lower)) detected.push('画像診断');
-    if (/鍼|灸|マッサージ|整体|カイロ/.test(lower)) detected.push('代替療法');
-    if (/漢方|ツムラ|クラシエ|五苓散|補中益気/.test(lower)) detected.push('漢方');
-    if (/ラーメン|寿司|焼肉|パスタ|カレー|弁当|コンビニ|外食/.test(lower)) detected.push('外食');
-    if (detected.length === 0) detected.push('日常記録');
-
-    // 2. Status Assessment
-    const isPositive = /良[いか]|楽|嬉し|元気|回復|改善|できた|調子/.test(lower);
-    const isNegative = /悪[いか]|辛|つら|ひどい|最悪|動けな|痛[いみ]|だるい/.test(lower);
-    const urgency = /死|自殺|救急|呼吸困難|意識/.test(lower) ? 'urgent' : isNegative ? 'attention' : 'normal';
-
-    // 3. Build structured sections
-    // Section: 記録の要約
-    sections.push({
-      title: '記録の分析',
-      icon: '📋',
-      content: `検出カテゴリ：${detected.join('・')}\n状態評価：${urgency === 'urgent' ? '緊急性あり' : isPositive ? '改善傾向' : isNegative ? '注意が必要' : '経過観察'}`
-    });
-
-    // Section: 具体的な所見
-    let findings = '';
-    if (detected.includes('服薬')) {
-      const meds = [];
-      if (/ツートラム/.test(lower)) meds.push('トラマドール（疼痛管理）');
-      if (/リンデロン|ベタメタゾン/.test(lower)) meds.push('ベタメタゾン（抗炎症・ステロイド）');
-      if (/エチゾラム|デパス/.test(lower)) meds.push('エチゾラム（抗不安・筋弛緩）');
-      if (/プレドニゾ/.test(lower)) meds.push('プレドニゾン/プレドニゾロン（免疫抑制）');
-      if (/カロナール/.test(lower)) meds.push('アセトアミノフェン（解熱鎮痛）');
-      if (/リボトリール/.test(lower)) meds.push('クロナゼパム（抗てんかん・抗不安）');
-      if (/レクサプロ/.test(lower)) meds.push('エスシタロプラム（SSRI）');
-      if (/五苓散/.test(lower)) meds.push('五苓散（漢方・水分代謝）');
-      if (/リベルサス|セマグルチド/.test(lower)) meds.push('セマグルチド（GLP-1受容体作動薬）');
-      if (meds.length > 0) findings += `【検出された薬剤】\n${meds.map(m => '・' + m).join('\n')}\n\n`;
-      findings += '注意：複数の薬剤を使用中の場合、相互作用に注意が必要です。次回診察時にお薬手帳を必ず持参してください。\n\n';
-    }
-    if (detected.includes('検査')) {
-      findings += '【検査データ】\n記録された検査情報を追跡しています。基準値との比較や推移の分析には、具体的な数値（例：CRP 0.5, TSH 2.3 等）を入力するとより精密な分析が可能です。\n\n';
-    }
-    if (detected.includes('疼痛')) {
-      findings += '【疼痛分析】\n痛みのパターンを追跡中です。より精密な分析のために、以下も記録してください：\n・部位（頭/首/肩/腰/全身）\n・強度（1-10）\n・種類（鈍痛/鋭痛/灼熱感/しびれ）\n・時間帯（朝/午後/夜間）\n・トリガー（活動後/天気/ストレス/食事後）\n\n';
-    }
-    if (detected.includes('ホルモン')) {
-      findings += '【ホルモン・月経分析】\n周期と体調の相関を追跡しています。月経周期日数、基礎体温、症状の強さを継続記録すると、予測と予防が可能になります。\n\n';
-    }
-    if (detected.includes('会話データ')) {
-      // Analyze conversation patterns
-      const negWords = (lower.match(/辛|つら|痛|だるい|しんどい|死|無理|不安|孤独|鬱|厳し|最悪|ダメ|嫌/g) || []).length;
-      const posWords = (lower.match(/良[いか]|楽し|嬉し|ありがた|元気|回復|できた|感謝|幸せ|大丈夫/g) || []).length;
-      const stressLevel = Math.min(10, Math.max(1, Math.round(negWords * 2 - posWords + 5)));
-      const energyLevel = posWords > negWords ? '比較的良好' : negWords > 3 ? '低下傾向' : '普通';
-
-      findings += '【会話データ分析】\n';
-      findings += `ストレス推定スコア: ${stressLevel}/10\n`;
-      findings += `エネルギーレベル: ${energyLevel}\n`;
-      findings += `ネガティブ語検出: ${negWords}件 / ポジティブ語検出: ${posWords}件\n\n`;
-
-      if (negWords > posWords * 2) {
-        findings += '⚠️ ネガティブな表現が多く、精神的な負荷が高い状態と推定されます。\n';
-        findings += '信頼できる方との対話や、専門家への相談を検討してください。\n\n';
-      }
-      if (/先生|医師|クリニック|病院|診察/.test(lower)) {
-        findings += '【医療者との会話を検出】\n';
-        findings += '診察内容や処方の変更点を整理しています。\n';
-        findings += 'テキストで補足（「○○先生から△△の処方が追加された」等）を入力すると、より正確な追跡ができます。\n\n';
-      }
-    }
-
-    // Extended findings
-    if (detected.includes('体重')) findings += '【体重管理】体重の変動を追跡中。急激な増減（1週間で2kg以上）は医師に報告を。BMIだけでなく体組成（筋肉量/体脂肪率）も重要です。\n\n';
-    if (detected.includes('バイタル')) findings += '【バイタルサイン】心拍数・血圧データを記録中。安静時心拍+30bpmを超える活動は要注意（PEM予防）。起立時に20bpm以上の増加があればPOTSの可能性。\n\n';
-    if (detected.includes('体温')) findings += '【体温】体温変動を追跡。37.5°C以上が続く場合は感染症や炎症の兆候。基礎体温の記録はホルモンバランスの評価に有用です。\n\n';
-    if (detected.includes('皮膚')) findings += '【皮膚症状】腸内環境・食物アレルギー・ストレスとの関連を分析中。IgG食物アレルギー検査で隠れたトリガーが見つかる場合があります。\n\n';
-    if (detected.includes('飲酒')) findings += '【飲酒記録】アルコールは免疫機能低下、睡眠の質悪化、薬との相互作用のリスクあり。慢性疾患患者は特に少量でも影響が大きいため注意。\n\n';
-    if (detected.includes('カフェイン')) findings += '【カフェイン】カフェインは自律神経に影響。POTSやME/CFSでは過敏になることも。午後2時以降は控えると睡眠改善に。\n\n';
-    if (detected.includes('水分')) findings += '【水分摂取】1日1.5-2Lが目安。POTS患者は2-3L+塩分補給が推奨。脱水は倦怠感・頭痛・めまいを悪化させます。\n\n';
-    if (detected.includes('仕事')) findings += '【仕事・活動量】業務負荷とPEM/ストレスの相関を分析中。50分作業→10分休憩のポモドーロ法で過負荷を防止。重要な会議前後は休息時間を確保。\n\n';
-    if (detected.includes('経済')) findings += '【経済・医療費】高額療養費制度、難病医療費助成、障害年金、自立支援医療制度が利用可能な場合があります。お住まいの自治体の窓口に相談を。\n\n';
-    if (detected.includes('家族') || detected.includes('人間関係')) findings += '【人間関係】社会的つながりは回復の重要な要素。慢性疾患の理解者を持つことがストレス軽減に。患者会やオンラインコミュニティの活用も検討を。\n\n';
-    if (detected.includes('遺伝子')) findings += '【遺伝子データ】薬剤代謝（CYP2D6等）、メチレーション（MTHFR）、疾患リスクの個別化分析が可能。具体的なSNPデータを入力すると精密な提案ができます。\n\n';
-    if (detected.includes('画像診断')) findings += '【画像診断】所見テキストを入力すると、専門用語の解説と経過観察のポイントを整理します。前回の結果との比較も可能です。\n\n';
-    if (detected.includes('代替療法') || detected.includes('漢方')) findings += '【代替療法/漢方】エビデンスのある代替療法を評価中。漢方は証（しょう）に基づく処方が重要。西洋薬との併用注意も確認します。\n\n';
-    if (detected.includes('外食')) findings += '【外食記録】外食は塩分・脂質・糖質が高くなりがち。抗炎症の観点から、野菜追加・スープ残し・食後の運動を推奨。食後の体調変化も記録してください。\n\n';
-    if (detected.includes('移動')) findings += '【移動・旅行】環境変化はストレス要因。長距離移動後はPEM予防で1-2日の回復期間を。時差がある場合はメラトニンで概日リズム調整を。\n\n';
-
-    if (findings) sections.push({ title: '詳細所見', icon: '🔍', content: findings });
-
-    // Section: 即時アクション
-    const actions = [];
-    if (urgency === 'urgent') {
-      actions.push('今すぐ信頼できる人に連絡してください');
-      actions.push('必要であれば救急（119）に電話を');
-    }
-    if (detected.includes('PEM')) {
-      actions.push('活動を即座に中断し、暗く静かな環境で安静に');
-      actions.push('次の24-48時間は回復に充てる');
-    }
-    if (detected.includes('疼痛')) {
-      actions.push('痛み止めは早めに服用（食事と一緒に）');
-      actions.push('エプソムソルト入浴（38°C, 20分）を試す');
-    }
-    if (detected.includes('睡眠')) {
-      actions.push('就寝2時間前からスクリーンを避ける');
-      actions.push('寝室の温度を21-23°Cに調整');
-    }
-    if (detected.includes('精神')) {
-      actions.push('4-7-8呼吸法を3セット行う');
-      actions.push('信頼できる人と話す');
-    }
-    if (detected.includes('会話データ')) {
-      actions.push('会話で気になった点をテキストでメモする');
-      actions.push('ストレスが高い場合は4-7-8呼吸法を実施');
-      if (/先生|医師|診察/.test(lower)) {
-        actions.push('診察内容をテキストで整理して記録する');
-        actions.push('次回の診察で確認したいことをメモする');
-      }
-    }
-    if (detected.includes('気象')) {
-      actions.push('気圧予報を確認し、五苓散の予防服用を検討');
-    }
-    if (detected.includes('消化器')) {
-      actions.push('消化に優しい食事（おかゆ、味噌汁等）を摂る');
-      actions.push('水分をこまめに補給する');
-    }
-    if (isPositive) {
-      actions.push('良かった要因を振り返ってメモする（再現性の鍵）');
-    }
-    if (actions.length === 0) {
-      actions.push('この記録を継続してください（パターン分析に活用されます）');
-    }
-    sections.push({ title: '今すぐできること', icon: '⚡', content: actions.map(a => '→ ' + a).join('\n') });
-
-    // Section: より深い分析のために
-    const deeperPrompts = [];
-    if (!detected.includes('服薬')) deeperPrompts.push('現在服用中の薬とサプリメントを記録すると、飲み合わせ分析ができます');
-    if (!detected.includes('検査')) deeperPrompts.push('血液検査の数値を入力すると、栄養状態と炎症レベルを評価できます');
-    if (!detected.includes('睡眠')) deeperPrompts.push('睡眠時間と質を記録すると、体調との相関が見えてきます');
-    if (!detected.includes('栄養')) deeperPrompts.push('食事内容を記録すると、栄養バランスの最適化提案ができます');
-    if (deeperPrompts.length > 0) {
-      sections.push({ title: 'さらに精度を上げるには', icon: '💡', content: deeperPrompts.map(p => '・' + p).join('\n') });
-    }
-
-    return {
-      timestamp: new Date().toISOString(),
-      detected,
-      urgency,
-      isPositive,
-      sections
-    };
-  }
+  // [REMOVED] generateDeepAnalysis - replaced by AI API calls via QUICK_ANALYSIS_PROMPT in config.js
 
   async runBackgroundAnalysis(userInput, feedbackEl) {
     try {
-      const diseases = store.get('selectedDiseases') || [];
-      const profile = store.get('userProfile') || {};
-      const recentEntries = (store.get('textEntries') || []).slice(-5).map(e => e.content).join('\n---\n');
+      // Build prompt from config template (QUICK_ANALYSIS_PROMPT)
+      const template = (typeof QUICK_ANALYSIS_PROMPT !== 'undefined') ? QUICK_ANALYSIS_PROMPT : '';
+      const prompt = this.buildPrompt(template, { '{{USER_INPUT}}': userInput });
 
-      const prompt = `以下のユーザーの最新の記録に基づいて、具体的で実行可能なアドバイスを日本語で提供してください。
-
-【ユーザー情報】
-疾患: ${diseases.join(', ') || '未設定'}
-居住地: ${profile.location || '日本'}
-年齢: ${profile.age || '未設定'}
-
-【最新の記録】
-${userInput}
-
-【直近の記録履歴】
-${recentEntries.substring(0, 3000)}
-
-以下を必ず含めてください：
-1. この記録から読み取れる健康状態の評価
-2. 具体的な改善アクション（今日できること）
-3. 注意すべき兆候（レッドフラッグ）があれば
-4. 推奨するサプリメントや食事の変更
-5. 必要であれば受診の推奨`;
-
-      const response = await aiEngine.callModel(store.get('selectedModel'), prompt, { maxTokens: 2048 });
-
-      if (typeof response === 'string' && response.length > 50) {
-        // API returned real response - update feedback
-        if (feedbackEl) {
-          feedbackEl.innerHTML = `
-            <div class="card" style="border-color:var(--success);border-left:4px solid var(--success)">
-              <div class="card-header" style="padding:10px 16px">
-                <span style="font-size:13px;font-weight:600">詳細分析</span>
-                <span class="tag tag-success" style="font-size:9px">API応答</span>
-              </div>
-              <div class="card-body" style="padding:14px 16px">
-                <div style="font-size:13px;color:var(--text-primary);line-height:1.8;white-space:pre-wrap">${Components.formatMarkdown(response)}</div>
-              </div>
-            </div>`;
-        }
-      }
+      const response = await aiEngine.callModel(store.get('selectedModel') || 'gpt-4o', prompt, { maxTokens: 2048 });
+      this.showAIFeedback(feedbackEl, response, 'AI分析');
     } catch (err) {
-      console.log('[Background Analysis] Failed:', err.message);
-      // Keep local analysis visible - don't replace
+      console.warn('[Background Analysis] Failed:', err.message);
+      if (feedbackEl) {
+        feedbackEl.innerHTML = `
+          <div class="card" style="border-left:4px solid var(--danger)">
+            <div class="card-body" style="padding:14px 16px">
+              <div style="font-size:13px;color:var(--danger);font-weight:600;margin-bottom:6px">分析エラー</div>
+              <div style="font-size:12px;color:var(--text-secondary)">${err.message}</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:8px">APIキーが設定されているか確認してください（設定 → AIモデル）</div>
+            </div>
+          </div>`;
+      }
     }
   }
 
@@ -2079,233 +1840,60 @@ ${recentEntries.substring(0, 3000)}
         });
         store.set('conversationHistory', history);
 
-        // Generate analysis specific to file type
-        const analysis = this.generateFileAnalysis(file.name, file.type, category);
-        store.set('latestFeedback', analysis);
-
         Components.showToast(`${file.name} を分析中...`, 'info');
         this.navigate('dashboard');
 
-        // Run Vision API analysis with image (delayed to ensure DOM is ready)
-        const apiKey = aiEngine.getApiKey(store.get('selectedModel'));
-        if (apiKey && isImage) {
-          setTimeout(() => this.runImageAnalysis(ev.target.result, file.name, category, document.getElementById('dash-ai-feedback')), 500);
-        } else if (apiKey) {
-          setTimeout(() => this.runBackgroundAnalysis(analysisPrompt, document.getElementById('dash-ai-feedback')), 500);
+        // Show loading state and run AI analysis
+        const feedbackEl = document.getElementById('dash-ai-feedback');
+        this.showFeedbackLoading(feedbackEl, `${file.name} を分析中...`);
+
+        if (isImage) {
+          setTimeout(() => this.runImageAnalysis(ev.target.result, file.name, category, feedbackEl), 300);
+        } else {
+          setTimeout(() => this.runBackgroundAnalysis(analysisPrompt, feedbackEl), 300);
         }
       };
       reader.readAsDataURL(file);
     });
   }
 
-  // Image analysis using Vision API
+  // Image analysis using Vision API - prompt from config.js (IMAGE_ANALYSIS_PROMPT)
   async runImageAnalysis(imageBase64, fileName, category, feedbackEl) {
     try {
-      const diseases = store.get('selectedDiseases') || [];
-      const profile = store.get('userProfile') || {};
       const recentMeds = (store.get('textEntries') || [])
         .filter(e => (e.content || '').match(/薬|ツートラム|リンデロン|エチゾラム|ステロイド|サプリ|ビタミン/))
         .slice(-3).map(e => e.content).join('\n');
+      const medsSection = recentMeds ? '【最近の服薬記録】\n' + recentMeds.substring(0, 500) : '';
 
-      const prompt = `この画像を詳しく分析してください。
+      // Build prompt from config template
+      const template = (typeof IMAGE_ANALYSIS_PROMPT !== 'undefined') ? IMAGE_ANALYSIS_PROMPT : '';
+      const prompt = this.buildPrompt(template, { '{{RECENT_MEDS}}': medsSection });
 
-【ユーザー情報】
-疾患: ${diseases.join(', ') || '未設定'}
-居住地: ${profile.location || '日本'}
-年齢: ${profile.age || '未設定'}歳
-${recentMeds ? '【最近の服薬記録】\n' + recentMeds.substring(0, 500) : ''}
-
-【最重要指示】
-この画像に写っている文字・数値・食品・物体をすべて丁寧に読み取ってください。
-画像が不鮮明でも、読み取れる範囲で最大限の情報を抽出してください。
-推測が必要な場合は「推測：」と明記した上で記載してください。
-
-まず、この画像が以下のどれに該当するか判断してください：
-A) 食事・飲み物の写真
-B) 血液検査・尿検査・その他検査結果
-C) 処方箋・お薬手帳・薬の写真
-D) 医療文書（紹介状・診断書等）
-E) 体の状態（肌・傷・腫れ等）
-F) ウェアラブルデバイスの画面
-G) その他
-
-該当するカテゴリに応じて以下の分析を行ってください：
-
-■ 食事・飲み物の写真の場合：
-1. 【料理特定】写っている料理名、食材を具体的に列挙
-2. 【カロリー推定】推定総カロリー（kcal）
-3. 【栄養素】タンパク質(g) / 脂質(g) / 炭水化物(g) / 食物繊維(g) / 塩分(g)
-4. 【ビタミン・ミネラル】特に多い/不足しているもの
-5. 【抗炎症スコア】1-10（10=最も抗炎症的）、理由付き
-6. 【血糖インパクト】GI値の推定と血糖値スパイクリスク
-7. 【慢性疾患への影響】ユーザーの疾患に対する良い点と注意点
-8. 【改善提案】この食事をより健康的にする具体的な変更3つ
-9. 【食後の行動】推奨する食後の過ごし方
-
-■ 血液検査・検査結果の場合：
-【最重要】画像に写っているすべての検査項目名と数値を1つ残らず読み取ってください。
-読みにくい場合も可能な限り推測して記載してください。
-
-表形式で出力：
-| 検査項目 | 数値 | 基準値 | 判定 | 意味 |
-各項目について：
-1. 基準値との比較（H=高値/L=低値/正常）
-2. 異常値の臨床的意義を平易な日本語で説明
-3. この患者の疾患（${diseases.join(', ')}）との関連
-4. 特に注目すべき項目TOP3とその理由
-5. 推奨される追加検査
-6. 数値改善のためのサプリメント・食事・生活改善
-7. 次回の診察で主治医に確認すべき点
-
-■ 処方箋・お薬手帳・薬の写真の場合：
-【最重要】画像に写っているすべての薬剤名・用量・用法を読み取ってください。
-
-各薬剤について：
-1. 薬剤名（一般名と商品名）
-2. 分類（何のための薬か）
-3. 用量と服用タイミング
-4. 主な副作用
-5. 他の薬との相互作用
-6. 避けるべき食品・サプリメント
-7. 全体の処方の整合性評価
-8. 減薬の可能性がある薬剤の指摘
-
-■ 医療文書の場合：
-文書に書かれている内容をすべて読み取り、要約してください。
-専門用語は平易な日本語で解説してください。
-
-■ 体の状態の写真の場合：
-見える症状を描写し、考えられる原因と受診の目安を提示してください。
-
-■ ウェアラブルデバイスの画面の場合：
-表示されている数値（心拍、SpO2、睡眠スコア等）を読み取り分析してください。
-
-必ず日本語で回答してください。`;
+      const visionSystemPrompt = (typeof AI_SYSTEM_PROMPTS !== 'undefined' && AI_SYSTEM_PROMPTS.vision) || '';
 
       const model = store.get('selectedModel') || 'gpt-4o';
       const response = await aiEngine.callModel(model, prompt, {
         maxTokens: 4096,
         imageBase64: imageBase64,
-        systemPrompt: `あなたは統合医療の専門家です。画像を詳細に分析し、慢性疾患患者の健康管理に役立つ具体的なアドバイスを日本語で提供してください。養生（日本の健康哲学）の視点も含めてください。`
+        systemPrompt: visionSystemPrompt
       });
 
-      if (typeof response === 'string' && response.length > 50 && feedbackEl) {
-        feedbackEl.innerHTML = `
-          <div class="card" style="border-left:4px solid var(--success)">
-            <div class="card-header" style="padding:10px 16px">
-              <span style="font-size:13px;font-weight:600">📸 画像分析結果</span>
-              <span class="tag tag-success" style="font-size:9px">Vision分析</span>
-            </div>
-            <div class="card-body" style="padding:14px 16px">
-              <div style="font-size:13px;color:var(--text-primary);line-height:1.8;white-space:pre-wrap">${Components.formatMarkdown(response)}</div>
-            </div>
-          </div>`;
-
-        // Save analysis to feedback
-        store.set('latestFeedback', {
-          timestamp: new Date().toISOString(),
-          detected: ['画像分析'],
-          urgency: 'normal',
-          sections: [{ title: '画像分析結果', icon: '📸', content: response.substring(0, 2000) }]
-        });
-      }
+      this.showAIFeedback(feedbackEl, response, '📸 Vision分析');
     } catch (err) {
       console.warn('[Image Analysis] Failed:', err.message);
+      if (feedbackEl) {
+        feedbackEl.innerHTML = `
+          <div class="card" style="border-left:4px solid var(--danger)">
+            <div class="card-body" style="padding:14px 16px">
+              <div style="font-size:13px;color:var(--danger);font-weight:600;margin-bottom:6px">画像分析エラー</div>
+              <div style="font-size:12px;color:var(--text-secondary)">${err.message}</div>
+            </div>
+          </div>`;
+      }
     }
   }
 
-  // File-specific deep analysis
-  generateFileAnalysis(fileName, fileType, category) {
-    const sections = [];
-    const lower = fileName.toLowerCase();
-    const isImage = fileType.startsWith('image/');
-
-    sections.push({
-      title: '記録の分析',
-      icon: '📋',
-      content: `ファイル: ${fileName}\nカテゴリ: ${category}\n種類: ${isImage ? '画像' : fileType}`
-    });
-
-    if (isImage) {
-      // Assume food photo (most common use case)
-      sections.push({
-        title: '食事分析',
-        icon: '🍽️',
-        content: `写真を記録しました。食事写真の場合の一般的なアドバイス：
-
-【栄養バランスの目安】
-・タンパク質：手のひらサイズの量が目安
-・野菜：皿の半分以上が理想
-・炭水化物：こぶし1つ分が適量
-
-【慢性疾患との食事の関係】
-・抗炎症食：青魚、緑黄色野菜、ナッツ、オリーブオイル
-・腸内環境：発酵食品（味噌、納豆、漬物）を毎食
-・避けたい食品：精製糖、加工食品、トランス脂肪酸
-
-【ラーメン等の外食の場合】
-・塩分が高いのでスープは残す
-・野菜トッピングを追加
-・次の食事で野菜中心にバランスを取る
-・食後2-3時間の体調変化を記録すると食事との相関が見える`
-      });
-
-      sections.push({
-        title: '今すぐできること',
-        icon: '⚡',
-        content: '→ 食後2時間後の体調を記録する\n→ 水分をしっかり摂る（食後30分以降）\n→ 食後の軽い散歩（10分）で血糖値スパイクを抑制'
-      });
-
-      sections.push({
-        title: 'さらに精度を上げるには',
-        icon: '💡',
-        content: '・食事の内容をテキストでも記録すると、より詳細な栄養分析ができます\n・食後の体調変化（眠気、膨満感、エネルギー等）も記録してください\n・「ラーメンを食べた、チャーシュー3枚、野菜少なめ」のように具体的に書くとベスト'
-      });
-    } else if (category === '検査結果') {
-      sections.push({
-        title: '検査データ',
-        icon: '🔬',
-        content: `検査結果ファイルを記録しました。
-
-数値を手入力していただくと、より詳しい分析ができます：
-・CRP（炎症マーカー）
-・TSH（甲状腺機能）
-・フェリチン（鉄貯蔵）
-・ビタミンD
-・白血球数、赤血球数
-・肝機能（AST, ALT）
-・腎機能（クレアチニン）
-
-テキスト入力欄に「CRP 0.5, TSH 2.3, フェリチン 30」のように入力してください。`
-      });
-
-      sections.push({
-        title: '今すぐできること',
-        icon: '⚡',
-        content: '→ 検査数値をテキストで入力すると基準値比較ができます\n→ 前回の検査結果と比較して変化を追跡\n→ 異常値があれば主治医に相談の準備を'
-      });
-    } else {
-      sections.push({
-        title: 'ファイル記録',
-        icon: '📁',
-        content: `${fileName} を記録しました。\n\nこのファイルの内容について、テキストで補足情報を追加すると分析精度が向上します。`
-      });
-
-      sections.push({
-        title: '今すぐできること',
-        icon: '⚡',
-        content: '→ ファイルの内容をテキストで要約して入力する\n→ 関連する体調の変化を記録する'
-      });
-    }
-
-    return {
-      timestamp: new Date().toISOString(),
-      detected: [category],
-      urgency: 'normal',
-      isPositive: false,
-      sections
-    };
-  }
+  // [REMOVED] generateFileAnalysis - replaced by AI API calls via IMAGE_ANALYSIS_PROMPT / runBackgroundAnalysis
 
   // ---- Data Page File Upload ----
   dataPageFileUpload(files) {
@@ -2338,16 +1926,18 @@ G) その他
         store.set('conversationHistory', history);
 
         const isImage = file.type.startsWith('image/');
-        const category = isImage ? '写真' : '検査結果';
-        const analysis = this.generateFileAnalysis(file.name, file.type, category);
-        store.set('latestFeedback', analysis);
 
         Components.showToast(`${file.name} を保存しました`, 'success');
 
+        // Run AI analysis
         if (resultEl) {
-          resultEl.innerHTML = `<div class="card" style="border-left:4px solid var(--accent)">
-            ${analysis.sections.map(s => `<div style="padding:10px 14px;border-bottom:1px solid var(--border)"><div style="font-size:12px;font-weight:600;margin-bottom:4px">${s.icon} ${s.title}</div><div style="font-size:12px;color:var(--text-secondary);line-height:1.7;white-space:pre-wrap">${s.content}</div></div>`).join('')}
-          </div>`;
+          resultEl.innerHTML = `<div class="card" style="border-left:4px solid var(--accent)"><div class="card-body" style="text-align:center;padding:20px"><div class="spinner" style="width:20px;height:20px;border-width:2px;margin:0 auto 8px"></div><div style="font-size:12px;color:var(--text-muted)">${file.name} を分析中...</div></div></div>`;
+          const analysisInput = textForAnalysis.join('\n');
+          if (isImage) {
+            this.runImageAnalysis(ev.target.result, file.name, '写真', resultEl);
+          } else {
+            this.runBackgroundAnalysis(analysisInput, resultEl);
+          }
         }
       };
       reader.readAsDataURL(file);

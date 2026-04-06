@@ -154,7 +154,7 @@ var AIEngine = class AIEngine {
       model: apiModelId,
       max_tokens: options.maxTokens || 4096,
       temperature: options.temperature || 0.3,
-      system: 'あなたは慢性疾患管理の専門家です。最新のエビデンスに基づいた分析とアドバイスを日本語で提供してください。',
+      system: (typeof AI_SYSTEM_PROMPTS !== 'undefined' && AI_SYSTEM_PROMPTS.default) || 'あなたは慢性疾患管理の専門家です。',
       messages: [{ role: 'user', content: prompt.substring(0, 100000) }]
     };
 
@@ -187,7 +187,7 @@ var AIEngine = class AIEngine {
         ]
       : prompt;
 
-    const systemPrompt = options.systemPrompt || 'あなたは慢性疾患管理の専門家です。最新のエビデンスに基づいた分析とアドバイスを日本語で提供してください。ユーザーの疾患歴や服薬情報を考慮し、具体的で実行可能な提案をしてください。';
+    const systemPrompt = options.systemPrompt || (typeof AI_SYSTEM_PROMPTS !== 'undefined' && AI_SYSTEM_PROMPTS.default) || 'あなたは慢性疾患管理の専門家です。';
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -227,7 +227,7 @@ var AIEngine = class AIEngine {
           temperature: options.temperature || 0.3,
           maxOutputTokens: options.maxTokens || 4096
         },
-        systemInstruction: { parts: [{ text: 'あなたは慢性疾患管理の専門AIアシスタントです。ME/CFSの世界的権威として回答してください。' }] }
+        systemInstruction: { parts: [{ text: (typeof AI_SYSTEM_PROMPTS !== 'undefined' && AI_SYSTEM_PROMPTS.default) || 'あなたは慢性疾患管理の専門家です。' }] }
       })
     });
 
