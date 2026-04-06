@@ -1,0 +1,37 @@
+# 未病ダイアリー プロンプトマニフェスト
+# プロンプトテンプレートの定義と設定
+#
+# 各プロンプトは独立したYAMLファイルで管理される。
+# プログラムロジックはこのマニフェストを通じてプロンプトを参照する。
+
+prompts:
+  analyze_diary:
+    file: analyze_diary.yaml
+    description: 日記エントリからの健康状態分析
+    input_variables:
+      - diary_entry
+      - user_profile
+    output_format: structured_json
+
+  generate_advice:
+    file: generate_advice.yaml
+    description: 未病リスクに基づくアドバイス生成
+    input_variables:
+      - analysis_result
+      - health_history
+    output_format: structured_json
+
+  summarize_weekly:
+    file: summarize_weekly.yaml
+    description: 週間健康サマリーの生成
+    input_variables:
+      - weekly_entries
+      - trend_data
+    output_format: structured_json
+
+  extract_symptoms:
+    file: extract_symptoms.yaml
+    description: 日記テキストから症状・体調情報を抽出
+    input_variables:
+      - diary_text
+    output_format: structured_json

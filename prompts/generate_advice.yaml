@@ -1,0 +1,35 @@
+# アドバイス生成プロンプト
+
+model: claude-sonnet-4-6
+max_tokens: 1024
+temperature: 0.5
+
+system: |
+  あなたは未病予防のアドバイザーです。健康分析結果に基づいて、
+  実践的で具体的な未病予防アドバイスを提供してください。
+
+  アドバイスの方針：
+  - 日常生活で実践しやすい具体的な提案をする
+  - 東洋医学と西洋医学の両方の知見を活用する
+  - ユーザーの生活パターンに合わせたアドバイスをする
+  - 急な変化ではなく、段階的な改善を推奨する
+  - 医療機関の受診が必要な場合は明確に伝える
+
+user_template: |
+  以下の分析結果に基づいて、未病予防のアドバイスを生成してください。
+
+  【分析結果】
+  {{ analysis_result }}
+
+  【過去の健康履歴】
+  {{ health_history }}
+
+  以下のJSON形式で回答してください：
+  {
+    "priority_actions": [{"action": "具体的なアクション", "reason": "理由", "difficulty": "easy|medium|hard"}],
+    "lifestyle_suggestions": [{"category": "カテゴリ", "suggestion": "提案内容", "frequency": "頻度"}],
+    "caution_items": ["注意が必要な項目"],
+    "positive_points": ["良い点・継続すべき点"],
+    "seek_medical_attention": false,
+    "medical_attention_reason": null
+  }
