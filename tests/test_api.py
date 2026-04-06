@@ -20,6 +20,18 @@ class TestHealthCheck:
         assert response.json() == {"status": "ok"}
 
 
+class TestFrontend:
+    async def test_index_page(self, client: AsyncClient):
+        response = await client.get("/")
+        assert response.status_code == 200
+        assert "未病ダイアリー" in response.text
+
+    async def test_index_has_linkify(self, client: AsyncClient):
+        response = await client.get("/")
+        assert "linkifyUrls" in response.text
+        assert 'target="_blank"' in response.text
+
+
 class TestPromptsList:
     async def test_list_prompts(self, client: AsyncClient):
         response = await client.get("/api/v1/prompts")

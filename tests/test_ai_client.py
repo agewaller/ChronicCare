@@ -1,8 +1,8 @@
-"""AIクライアントのJSONパースのテスト。"""
+"""AIクライアントのJSONパースとエラーハンドリングのテスト。"""
 
 import pytest
 
-from src.services.ai_client import AIClient
+from src.services.ai_client import AIClient, AIClientError
 
 
 class TestParseJsonResponse:
@@ -35,3 +35,15 @@ class TestParseJsonResponse:
     def test_invalid_json_raises(self):
         with pytest.raises(Exception):
             AIClient._parse_json_response("not json at all")
+
+
+class TestAIClientError:
+    def test_error_with_original(self):
+        original = RuntimeError("test")
+        err = AIClientError("wrapper message", original)
+        assert str(err) == "wrapper message"
+        assert err.original_error is original
+
+    def test_error_without_original(self):
+        err = AIClientError("simple error")
+        assert err.original_error is None
