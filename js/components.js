@@ -317,13 +317,17 @@ var Components = {
     `;
   },
 
-  // Simple markdown formatter
+  // Simple markdown formatter (with URL auto-linking)
   formatMarkdown(text) {
     if (!text) return '';
     return text
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
       .replace(/`(.*?)`/g, '<code style="background:var(--bg-tertiary);padding:2px 6px;border-radius:4px;font-size:12px">$1</code>')
+      // URL auto-linking: convert URLs to clickable <a> tags
+      .replace(/(https?:\/\/[^\s<>"'`\]\)]+)/g, (url) => {
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline;word-break:break-all">${url}</a>`;
+      })
       .replace(/\n/g, '<br>');
   },
 
