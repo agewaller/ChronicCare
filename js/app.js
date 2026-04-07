@@ -1407,7 +1407,7 @@ URL/連絡先：（あれば）`;
       const template = (typeof QUICK_ANALYSIS_PROMPT !== 'undefined') ? QUICK_ANALYSIS_PROMPT : '';
       const prompt = this.buildPrompt(template, { '{{USER_INPUT}}': msg });
       const response = await aiEngine.callModel(
-        store.get('selectedModel') || 'gpt-4o',
+        store.get('selectedModel') || 'claude-sonnet-4-6',
         prompt,
         { maxTokens: 2048 }
       );
@@ -1751,7 +1751,7 @@ URL/連絡先：（あれば）`;
       const template = (typeof QUICK_ANALYSIS_PROMPT !== 'undefined') ? QUICK_ANALYSIS_PROMPT : '';
       const prompt = this.buildPrompt(template, { '{{USER_INPUT}}': userInput });
 
-      const response = await aiEngine.callModel(store.get('selectedModel') || 'gpt-4o', prompt, { maxTokens: 2048 });
+      const response = await aiEngine.callModel(store.get('selectedModel') || 'claude-sonnet-4-6', prompt, { maxTokens: 2048 });
       this.showAIFeedback(feedbackEl, response, 'AI分析');
     } catch (err) {
       console.warn('[Background Analysis] Failed:', err.message);
@@ -1871,7 +1871,7 @@ URL/連絡先：（あれば）`;
 
       const visionSystemPrompt = (typeof AI_SYSTEM_PROMPTS !== 'undefined' && AI_SYSTEM_PROMPTS.vision) || '';
 
-      const model = store.get('selectedModel') || 'gpt-4o';
+      const model = store.get('selectedModel') || 'claude-sonnet-4-6';
       const response = await aiEngine.callModel(model, prompt, {
         maxTokens: 4096,
         imageBase64: imageBase64,

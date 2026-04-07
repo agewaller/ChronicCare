@@ -41,7 +41,7 @@ var Store = class Store {
 
       // Admin
       adminMode: false,
-      selectedModel: 'gpt-4o',
+      selectedModel: 'claude-sonnet-4-6',
       customPrompts: {},
       dashboardLayout: 'default',
       affiliateConfig: {},

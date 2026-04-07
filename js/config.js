@@ -18,10 +18,10 @@ var CONFIG = {
 
   // AI Model Options
   AI_MODELS: [
-    { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI', description: 'OpenAI最新マルチモーダルモデル', default: true },
-    { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'Anthropic', description: '高速・高精度（プロキシ設定が必要）' },
-    { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', provider: 'Anthropic', description: '最高精度（プロキシ設定が必要）' },
-    { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', provider: 'Anthropic', description: '高速・低コスト（プロキシ設定が必要）' },
+    { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'Anthropic', description: '高速・高精度・Vision対応', default: true },
+    { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', provider: 'Anthropic', description: '最高精度・Vision対応' },
+    { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', provider: 'Anthropic', description: '高速・低コスト' },
+    { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI', description: 'OpenAIマルチモーダルモデル' },
     { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'Google', description: 'Google最新モデル' }
   ],
 

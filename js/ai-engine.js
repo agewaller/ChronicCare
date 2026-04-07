@@ -131,9 +131,15 @@ var AIEngine = class AIEngine {
     }
   }
 
-  // Anthropic Claude API (via proxy or direct)
+  // Anthropic Claude API (via proxy or direct) with Vision support
   async callAnthropic(modelId, prompt, apiKey, options) {
-    const apiModelId = 'claude-3-5-sonnet-20241022';
+    // Map config model IDs to Anthropic API model IDs
+    const MODEL_MAP = {
+      'claude-sonnet-4-6': 'claude-sonnet-4-6-20250514',
+      'claude-opus-4-6': 'claude-opus-4-6-20250514',
+      'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
+    };
+    const apiModelId = MODEL_MAP[modelId] || modelId;
     const proxyUrl = localStorage.getItem('anthropic_proxy_url');
     const endpoint = proxyUrl || 'https://api.anthropic.com/v1/messages';
 
@@ -150,12 +156,40 @@ var AIEngine = class AIEngine {
       headers['anthropic-dangerous-direct-browser-access'] = 'true';
     }
 
+    // Build user content - support Vision (image analysis)
+    let userContent;
+    if (options.imageBase64) {
+      // Extract mime type and base64 data from data URL
+      const match = options.imageBase64.match(/^data:(image\/\w+);base64,(.+)$/);
+      if (match) {
+        userContent = [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: match[1],
+              data: match[2],
+            }
+          },
+          { type: 'text', text: prompt.substring(0, 100000) }
+        ];
+      } else {
+        userContent = [{ type: 'text', text: prompt.substring(0, 100000) }];
+      }
+    } else {
+      userContent = prompt.substring(0, 100000);
+    }
+
+    const systemPrompt = options.systemPrompt
+      || (typeof AI_SYSTEM_PROMPTS !== 'undefined' && AI_SYSTEM_PROMPTS.default)
+      || 'あなたは慢性疾患管理の専門家です。';
+
     const body = {
       model: apiModelId,
       max_tokens: options.maxTokens || 4096,
       temperature: options.temperature || 0.3,
-      system: (typeof AI_SYSTEM_PROMPTS !== 'undefined' && AI_SYSTEM_PROMPTS.default) || 'あなたは慢性疾患管理の専門家です。',
-      messages: [{ role: 'user', content: prompt.substring(0, 100000) }]
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userContent }]
     };
 
     const response = await fetch(endpoint, {
