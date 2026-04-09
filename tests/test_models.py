@@ -5,7 +5,12 @@ from datetime import date, timezone
 
 from src.models.diary import DiaryEntry, UserProfile
 from src.models.analysis import AnalysisResult, MibyouRisk, AdviceResult
-from src.models.symptoms import ExtractedSymptoms, Symptom, Mood
+from src.models.symptoms import (
+    ExtractedSymptoms,
+    NutritionEstimate,
+    Symptom,
+    Mood,
+)
 
 
 class TestUserProfile:
@@ -45,6 +50,120 @@ class TestUserProfile:
         )
         assert entry.created_at.tzinfo is not None
         assert entry.created_at.tzinfo == timezone.utc
+
+
+class TestBasalMetabolicRate:
+    """Mifflin-St Jeor式の基礎代謝計算。"""
+
+    def test_male_bmr(self):
+        # 男性 30歳 170cm 70kg
+        # BMR = 10*70 + 6.25*170 - 5*30 + 5 = 700 + 1062.5 - 150 + 5 = 1617.5 → 1618
+        profile = UserProfile(
+            user_id="u1", age=30, gender="男性", height_cm=170, weight_kg=70
+        )
+        assert profile.basal_metabolic_rate() == 1618
+
+    def test_female_bmr(self):
+        # 女性 30歳 160cm 55kg
+        # BMR = 10*55 + 6.25*160 - 5*30 - 161 = 550 + 1000 - 150 - 161 = 1239
+        profile = UserProfile(
+            user_id="u1", age=30, gender="女性", height_cm=160, weight_kg=55
+        )
+        assert profile.basal_metabolic_rate() == 1239
+
+    def test_other_gender_bmr(self):
+        # その他: 男女平均 (base - 78)
+        profile = UserProfile(
+            user_id="u1",
+            age=30,
+            gender="その他",
+            height_cm=165,
+            weight_kg=60,
+        )
+        assert profile.basal_metabolic_rate() is not None
+
+    def test_missing_data_returns_none(self):
+        assert UserProfile(user_id="u1").basal_metabolic_rate() is None
+        assert UserProfile(
+            user_id="u1", age=30, height_cm=170
+        ).basal_metabolic_rate() is None
+        assert UserProfile(
+            user_id="u1", age=30, weight_kg=70
+        ).basal_metabolic_rate() is None
+        assert UserProfile(
+            user_id="u1", height_cm=170, weight_kg=70
+        ).basal_metabolic_rate() is None
+
+    def test_bmr_in_prompt_text(self):
+        profile = UserProfile(
+            user_id="u1", age=30, gender="男性", height_cm=170, weight_kg=70
+        )
+        text = profile.to_prompt_text()
+        assert "170" in text and "cm" in text
+        assert "70" in text and "kg" in text
+        assert "基礎代謝" in text
+        assert "1618" in text
+
+
+class TestNutritionEstimate:
+    def test_default_values(self):
+        n = NutritionEstimate()
+        assert n.total_calories == 0
+        assert n.protein_g == 0.0
+        assert n.fat_g == 0.0
+        assert n.carbs_g == 0.0
+        assert n.confidence == "unknown"
+        assert n.note == ""
+
+    def test_full_nutrition(self):
+        n = NutritionEstimate(
+            total_calories=1800,
+            protein_g=80.5,
+            fat_g=55.2,
+            carbs_g=220.0,
+            confidence="medium",
+            note="ご飯2杯と鶏胸肉150gを仮定",
+        )
+        assert n.total_calories == 1800
+        assert n.protein_g == 80.5
+        assert n.confidence == "medium"
+
+    def test_extracted_symptoms_with_nutrition(self):
+        data = {
+            "symptoms": [],
+            "mood": None,
+            "sleep": None,
+            "meals": [{"type": "朝食", "description": "トーストとコーヒー"}],
+            "exercise": None,
+            "nutrition": {
+                "total_calories": 300,
+                "protein_g": 10.0,
+                "fat_g": 12.0,
+                "carbs_g": 40.0,
+                "confidence": "low",
+                "note": "トースト1枚160kcal想定",
+            },
+            "other_notes": [],
+        }
+        result = ExtractedSymptoms.model_validate(data)
+        assert result.nutrition is not None
+        assert result.nutrition.total_calories == 300
+        assert result.nutrition.confidence == "low"
+
+    def test_extracted_symptoms_without_nutrition(self):
+        """nutrition は省略可能（既存データとの後方互換）。"""
+        data = {
+            "symptoms": [
+                {"name": "頭痛", "severity": "mild", "duration": "2時間"}
+            ],
+            "mood": {"state": "普通", "score": None},
+            "sleep": {"quality": "fair", "hours": 6.5},
+            "meals": [],
+            "exercise": {"done": False, "type": None, "duration_minutes": None},
+            "other_notes": [],
+        }
+        result = ExtractedSymptoms.model_validate(data)
+        assert result.nutrition is None
 
 
 class TestAnalysisResult:

@@ -205,6 +205,77 @@
     margin-top: 12px;
   }
   .medical-warning strong { color: var(--danger); }
+
+  /* Dashboard */
+  .dashboard-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .metric-card {
+    background: #f0f7f4;
+    border-left: 3px solid var(--primary);
+    padding: 12px 14px;
+    border-radius: 6px;
+  }
+  .metric-label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .metric-value {
+    display: block;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--primary);
+    margin-top: 2px;
+  }
+  .metric-sub {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .chart-container {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .chart-container h3 {
+    font-size: 0.95rem;
+    color: var(--text);
+    margin-bottom: 10px;
+  }
+  .chart-wrapper {
+    position: relative;
+    height: 260px;
+  }
+  .chart-empty {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    background: #f8f9fa;
+    border-radius: 6px;
+  }
+  .dashboard-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 12px;
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    padding: 6px 14px;
+    font-size: 0.85rem;
+  }
+  .btn-ghost:hover { background: var(--bg); }
 </style>
 </head>
 <body>
@@ -215,6 +286,54 @@
 </header>
 
 <div class="container">
+  <!-- Home Dashboard -->
+  <div class="card" id="dashboard">
+    <h2>📊 ホームダッシュボード</h2>
+    <div class="dashboard-summary">
+      <div class="metric-card">
+        <span class="metric-label">基礎代謝 BMR</span>
+        <span class="metric-value" id="metric-bmr">--</span>
+        <span class="metric-sub">kcal / 日</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">今日の摂取</span>
+        <span class="metric-value" id="metric-today-kcal">--</span>
+        <span class="metric-sub" id="metric-today-delta">vs 基礎代謝</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">7日平均</span>
+        <span class="metric-value" id="metric-week-avg">--</span>
+        <span class="metric-sub">kcal / 日</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">記録日数</span>
+        <span class="metric-value" id="metric-days">0</span>
+        <span class="metric-sub">日分の履歴</span>
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <h3>カロリー摂取 vs 基礎代謝（時系列）</h3>
+      <div class="chart-wrapper"><canvas id="chart-calories"></canvas></div>
+      <div id="chart-calories-empty" class="chart-empty" style="display:none;">
+        データがありません。日記を入力して「症状抽出」を実行すると、AIが食事内容から栄養を推定して記録します。
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <h3>PFCバランス：タンパク質 / 脂質 / 炭水化物（時系列 g）</h3>
+      <div class="chart-wrapper"><canvas id="chart-pfc"></canvas></div>
+      <div id="chart-pfc-empty" class="chart-empty" style="display:none;">
+        データがありません。
+      </div>
+    </div>
+
+    <div class="dashboard-actions">
+      <button class="btn btn-ghost" onclick="exportHistory()">JSONエクスポート</button>
+      <button class="btn btn-ghost" onclick="clearHistoryConfirm()">履歴をクリア</button>
+    </div>
+  </div>
+
   <!-- Profile Section -->
   <div class="card">
     <h2>プロフィール</h2>
@@ -233,6 +352,16 @@
         </select>
       </div>
     </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>身長 (cm)</label>
+        <input type="number" id="height_cm" placeholder="例: 165" min="50" max="250" step="0.1">
+      </div>
+      <div class="form-group">
+        <label>体重 (kg)</label>
+        <input type="number" id="weight_kg" placeholder="例: 60" min="20" max="300" step="0.1">
+      </div>
+    </div>
     <div class="form-group">
       <label>既往歴（カンマ区切り）</label>
       <input type="text" id="conditions" placeholder="例: 高血圧, 花粉症">
@@ -240,6 +369,9 @@
     <div class="form-group">
       <label>生活メモ</label>
       <input type="text" id="lifestyle" placeholder="例: デスクワーク中心、週2回ジム">
+    </div>
+    <div class="btn-group" style="margin-top:8px">
+      <button class="btn btn-ghost" onclick="saveProfileToStorage()">プロフィールを保存</button>
     </div>
   </div>
 
@@ -298,6 +430,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 // --- Helpers ---
 function $(id) { return document.getElementById(id); }
@@ -370,15 +503,273 @@ function riskBadge(level) {
 function getProfile() {
   const age = $('age').value ? parseInt($('age').value) : null;
   const gender = $('gender').value || null;
+  const height_cm = $('height_cm').value ? parseFloat($('height_cm').value) : null;
+  const weight_kg = $('weight_kg').value ? parseFloat($('weight_kg').value) : null;
   const conditionsRaw = $('conditions').value.trim();
   const conditions = conditionsRaw ? conditionsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
   const lifestyle = $('lifestyle').value.trim() || null;
   return {
     user_id: 'user-1',
     age, gender,
+    height_cm, weight_kg,
     chronic_conditions: conditions,
     lifestyle_notes: lifestyle,
   };
+}
+
+// 基礎代謝 (Mifflin-St Jeor)
+function calculateBMR(profile) {
+  if (profile.age == null || profile.height_cm == null || profile.weight_kg == null) return null;
+  const base = 10 * profile.weight_kg + 6.25 * profile.height_cm - 5 * profile.age;
+  if (profile.gender === '男性') return Math.round(base + 5);
+  if (profile.gender === '女性') return Math.round(base - 161);
+  return Math.round(base - 78);
+}
+
+// --- localStorage 永続化 ---
+
+const PROFILE_KEY = 'mibyou_profile_v1';
+const HISTORY_KEY = 'mibyou_nutrition_history_v1';
+
+function saveProfileToStorage() {
+  const p = getProfile();
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
+  renderDashboard();
+  showToast('プロフィールを保存しました');
+}
+
+function loadProfileFromStorage() {
+  try {
+    const raw = localStorage.getItem(PROFILE_KEY);
+    if (!raw) return;
+    const p = JSON.parse(raw);
+    if (p.age != null) $('age').value = p.age;
+    if (p.gender) $('gender').value = p.gender;
+    if (p.height_cm != null) $('height_cm').value = p.height_cm;
+    if (p.weight_kg != null) $('weight_kg').value = p.weight_kg;
+    if (p.chronic_conditions && p.chronic_conditions.length) {
+      $('conditions').value = p.chronic_conditions.join(', ');
+    }
+    if (p.lifestyle_notes) $('lifestyle').value = p.lifestyle_notes;
+  } catch (e) {
+    console.warn('プロフィール読込失敗', e);
+  }
+}
+
+function loadHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveHistoryEntry(entryDate, nutrition) {
+  if (!entryDate || !nutrition) return;
+  const history = loadHistory().filter(h => h.date !== entryDate);
+  history.push({
+    date: entryDate,
+    total_calories: Math.round(nutrition.total_calories || 0),
+    protein_g: +(nutrition.protein_g || 0).toFixed(1),
+    fat_g: +(nutrition.fat_g || 0).toFixed(1),
+    carbs_g: +(nutrition.carbs_g || 0).toFixed(1),
+    confidence: nutrition.confidence || 'unknown',
+    note: nutrition.note || '',
+  });
+  history.sort((a, b) => a.date.localeCompare(b.date));
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+}
+
+function clearHistoryConfirm() {
+  if (!confirm('栄養履歴をすべて削除します。よろしいですか？')) return;
+  localStorage.removeItem(HISTORY_KEY);
+  renderDashboard();
+  showToast('履歴を削除しました');
+}
+
+function exportHistory() {
+  const data = { profile: getProfile(), history: loadHistory() };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `mibyou-diary-${new Date().toISOString().split('T')[0]}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function showToast(msg) {
+  const el = document.createElement('div');
+  el.textContent = msg;
+  el.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--primary);color:white;padding:10px 20px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.2);z-index:9999;font-size:0.9rem';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2500);
+}
+
+// --- ダッシュボード描画 ---
+
+let _calorieChart = null;
+let _pfcChart = null;
+
+function renderDashboard() {
+  const history = loadHistory();
+  const profile = getProfile();
+  const bmr = calculateBMR(profile);
+
+  // メトリクス
+  $('metric-bmr').textContent = bmr ? bmr.toLocaleString() : '--';
+
+  const today = new Date().toISOString().split('T')[0];
+  const todayEntry = history.find(h => h.date === today);
+  $('metric-today-kcal').textContent = todayEntry ? todayEntry.total_calories.toLocaleString() : '--';
+
+  if (todayEntry && bmr) {
+    const delta = todayEntry.total_calories - bmr;
+    const sign = delta >= 0 ? '+' : '';
+    $('metric-today-delta').textContent = `${sign}${delta.toLocaleString()} kcal vs BMR`;
+  } else {
+    $('metric-today-delta').textContent = 'vs 基礎代謝';
+  }
+
+  // 7日平均
+  const weekHistory = history.slice(-7);
+  if (weekHistory.length > 0) {
+    const avg = Math.round(weekHistory.reduce((s, h) => s + h.total_calories, 0) / weekHistory.length);
+    $('metric-week-avg').textContent = avg.toLocaleString();
+  } else {
+    $('metric-week-avg').textContent = '--';
+  }
+
+  $('metric-days').textContent = history.length;
+
+  // グラフ描画
+  renderCalorieChart(history, bmr);
+  renderPFCChart(history);
+}
+
+function renderCalorieChart(history, bmr) {
+  const canvas = $('chart-calories');
+  const empty = $('chart-calories-empty');
+  if (history.length === 0) {
+    canvas.style.display = 'none';
+    empty.style.display = 'block';
+    if (_calorieChart) { _calorieChart.destroy(); _calorieChart = null; }
+    return;
+  }
+  canvas.style.display = 'block';
+  empty.style.display = 'none';
+
+  const labels = history.map(h => h.date);
+  const calories = history.map(h => h.total_calories);
+  const bmrLine = bmr ? history.map(() => bmr) : null;
+
+  const datasets = [
+    {
+      label: '摂取カロリー',
+      data: calories,
+      borderColor: '#2d6a4f',
+      backgroundColor: 'rgba(45,106,79,0.15)',
+      fill: true,
+      tension: 0.3,
+      pointRadius: 4,
+      pointHoverRadius: 6,
+    },
+  ];
+  if (bmrLine) {
+    datasets.push({
+      label: '基礎代謝 (BMR)',
+      data: bmrLine,
+      borderColor: '#dc3545',
+      borderDash: [6, 4],
+      pointRadius: 0,
+      fill: false,
+      borderWidth: 2,
+    });
+  }
+
+  if (_calorieChart) _calorieChart.destroy();
+  _calorieChart = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()} kcal`,
+          },
+        },
+      },
+      scales: {
+        y: {
+          beginAtZero: false,
+          ticks: { callback: (v) => v.toLocaleString() + ' kcal' },
+        },
+      },
+    },
+  });
+}
+
+function renderPFCChart(history) {
+  const canvas = $('chart-pfc');
+  const empty = $('chart-pfc-empty');
+  if (history.length === 0) {
+    canvas.style.display = 'none';
+    empty.style.display = 'block';
+    if (_pfcChart) { _pfcChart.destroy(); _pfcChart = null; }
+    return;
+  }
+  canvas.style.display = 'block';
+  empty.style.display = 'none';
+
+  const labels = history.map(h => h.date);
+  const datasets = [
+    {
+      label: 'タンパク質 (P)',
+      data: history.map(h => h.protein_g),
+      backgroundColor: '#40916c',
+    },
+    {
+      label: '脂質 (F)',
+      data: history.map(h => h.fat_g),
+      backgroundColor: '#ffc107',
+    },
+    {
+      label: '炭水化物 (C)',
+      data: history.map(h => h.carbs_g),
+      backgroundColor: '#17a2b8',
+    },
+  ];
+
+  if (_pfcChart) _pfcChart.destroy();
+  _pfcChart = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} g`,
+          },
+        },
+      },
+      scales: {
+        x: { stacked: true },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          ticks: { callback: (v) => v + ' g' },
+        },
+      },
+    },
+  });
 }
 
 function getEntry() {
@@ -541,6 +932,22 @@ function renderExtraction(data) {
     html += '</p><br>';
   }
 
+  if (data.nutrition) {
+    const n = data.nutrition;
+    html += '<h3>栄養推定 (AI)</h3><ul class="item-list">';
+    html += `<li><span class="item-label">総カロリー</span>: ${escapeHtml(n.total_calories)} kcal</li>`;
+    html += `<li><span class="item-label">タンパク質 (P)</span>: ${escapeHtml(n.protein_g)} g</li>`;
+    html += `<li><span class="item-label">脂質 (F)</span>: ${escapeHtml(n.fat_g)} g</li>`;
+    html += `<li><span class="item-label">炭水化物 (C)</span>: ${escapeHtml(n.carbs_g)} g</li>`;
+    if (n.confidence) {
+      html += `<li><span class="item-label">信頼度</span>: ${riskBadge(n.confidence)}</li>`;
+    }
+    if (n.note) {
+      html += `<li><small>${linkifyUrls(n.note)}</small></li>`;
+    }
+    html += '</ul><br>';
+  }
+
   if (data.other_notes && data.other_notes.length) {
     html += '<h3>その他</h3><ul class="item-list">';
     for (const n of data.other_notes) {
@@ -605,6 +1012,14 @@ async function extractSymptoms() {
     $('results').classList.add('visible');
     // Switch to extraction tab
     showTab('extraction');
+
+    // 栄養情報があれば履歴に保存してダッシュボード更新
+    if (data.nutrition) {
+      const entryDate = $('entry-date').value || new Date().toISOString().split('T')[0];
+      saveHistoryEntry(entryDate, data.nutrition);
+      renderDashboard();
+      showToast('栄養データをダッシュボードに記録しました');
+    }
   } catch (e) {
     showError(e.message);
   } finally {
@@ -612,8 +1027,19 @@ async function extractSymptoms() {
   }
 }
 
+// --- 初期化 ---
 // Set today's date
 $('entry-date').value = new Date().toISOString().split('T')[0];
+
+// プロフィール復元・ダッシュボード描画
+loadProfileFromStorage();
+renderDashboard();
+
+// プロフィール変更時にダッシュボードのBMRを自動更新
+['age', 'gender', 'height_cm', 'weight_kg'].forEach(id => {
+  const el = $(id);
+  if (el) el.addEventListener('change', renderDashboard);
+});
 </script>
 </body>
 </html>

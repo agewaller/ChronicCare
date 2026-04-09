@@ -30,6 +30,17 @@ class Exercise(BaseModel):
     duration_minutes: int | None = None
 
 
+class NutritionEstimate(BaseModel):
+    """1日分の栄養推定値（メニュー記述からAIが推定）。"""
+
+    total_calories: int = 0  # kcal
+    protein_g: float = 0.0
+    fat_g: float = 0.0
+    carbs_g: float = 0.0
+    confidence: str = "unknown"  # low | medium | high | unknown
+    note: str = ""
+
+
 class ExtractedSymptoms(BaseModel):
     """日記テキストから抽出された構造化データ。"""
 
@@ -38,4 +49,5 @@ class ExtractedSymptoms(BaseModel):
     sleep: Sleep | None = None
     meals: list[Meal] = Field(default_factory=list)
     exercise: Exercise | None = None
+    nutrition: NutritionEstimate | None = None
     other_notes: list[str] = Field(default_factory=list)
