@@ -135,8 +135,8 @@ var AIEngine = class AIEngine {
   async callAnthropic(modelId, prompt, apiKey, options) {
     // Map config model IDs to Anthropic API model IDs
     const MODEL_MAP = {
-      'claude-sonnet-4-6': 'claude-sonnet-4-6-20250514',
-      'claude-opus-4-6': 'claude-opus-4-6-20250514',
+      'claude-sonnet-4-6': 'claude-sonnet-4-6',
+      'claude-opus-4-6': 'claude-opus-4-6',
       'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
     };
     const apiModelId = MODEL_MAP[modelId] || modelId;
@@ -327,6 +327,7 @@ var AIEngine = class AIEngine {
   }
 
   getApiKey(modelId) {
+    if (!modelId) return '';
     // Check all possible key storage patterns
     const directKey = localStorage.getItem(`apikey_${modelId}`);
     if (directKey) return directKey;
