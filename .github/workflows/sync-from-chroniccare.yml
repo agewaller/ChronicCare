@@ -1,0 +1,76 @@
+# ============================================================
+# ChronicCare 経由の自動同期ワークフロー
+# ============================================================
+# このワークフローは、AI アシスタントが agewaller/ChronicCare の
+# sync ブランチにプッシュした変更を自動で stock-screener:main に
+# 取り込み、GitHub Pages (cares.advisers.jp) に反映する。
+#
+# AI 側の制約: 環境のgitプロキシが agewaller/ChronicCare のみを
+# 許可しているため、直接 stock-screener にプッシュできない。
+# このワークフローで橋渡しする。
+#
+# 動作:
+#   1. 5分おきにポーリング (cron)
+#   2. 手動トリガーも可能 (workflow_dispatch)
+#   3. ChronicCare の claude/fix-translate-nutrition-YbPD4 ブランチを fetch
+#   4. fast-forward できれば main に merge して push
+#   5. Pages デプロイは pages.yml が別途トリガー
+# ============================================================
+
+name: Sync from agewaller/ChronicCare
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # 5分おき
+  workflow_dispatch:         # 手動実行も可
+
+concurrency:
+  group: sync-from-chroniccare
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch sync branch from ChronicCare
+        run: |
+          git remote add chroniccare https://github.com/agewaller/ChronicCare.git
+          git fetch chroniccare claude/fix-translate-nutrition-YbPD4 || {
+            echo "::warning::sync branch not found on ChronicCare, skipping"
+            exit 0
+          }
+
+      - name: Fast-forward merge if possible
+        run: |
+          LOCAL=$(git rev-parse main)
+          REMOTE=$(git rev-parse chroniccare/claude/fix-translate-nutrition-YbPD4)
+          if [ "$LOCAL" = "$REMOTE" ]; then
+            echo "Already up to date"
+            exit 0
+          fi
+          # Check if fast-forward is possible
+          if git merge-base --is-ancestor "$LOCAL" "$REMOTE"; then
+            git merge --ff-only "$REMOTE"
+            git push origin main
+            echo "✓ Synced to $REMOTE"
+          else
+            echo "::warning::Non-fast-forward; manual merge required"
+            echo "Local:  $LOCAL"
+            echo "Remote: $REMOTE"
+            exit 0
+          fi
