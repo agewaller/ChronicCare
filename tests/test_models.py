@@ -1,7 +1,7 @@
 """データモデルのテスト。"""
 
 import pytest
-from datetime import date
+from datetime import date, timezone
 
 from src.models.diary import DiaryEntry, UserProfile
 from src.models.analysis import AnalysisResult, MibyouRisk, AdviceResult
@@ -36,6 +36,15 @@ class TestUserProfile:
         )
         assert entry.entry_date == date(2026, 4, 6)
         assert entry.text == "今日は元気だった"
+
+    def test_diary_entry_created_at_is_timezone_aware(self):
+        entry = DiaryEntry(
+            user_id="u1",
+            entry_date=date(2026, 4, 6),
+            text="test",
+        )
+        assert entry.created_at.tzinfo is not None
+        assert entry.created_at.tzinfo == timezone.utc
 
 
 class TestAnalysisResult:

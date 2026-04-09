@@ -276,9 +276,9 @@
   <!-- Results: Tabs -->
   <div id="results" class="card result-section">
     <div class="tabs">
-      <button class="tab active" onclick="showTab('analysis')">分析結果</button>
-      <button class="tab" onclick="showTab('advice')">アドバイス</button>
-      <button class="tab" onclick="showTab('extraction')">症状抽出</button>
+      <button class="tab active" data-tab="analysis" onclick="showTab('analysis', this)">分析結果</button>
+      <button class="tab" data-tab="advice" onclick="showTab('advice', this)">アドバイス</button>
+      <button class="tab" data-tab="extraction" onclick="showTab('extraction', this)">症状抽出</button>
     </div>
 
     <!-- Analysis Tab -->
@@ -302,11 +302,19 @@
 // --- Helpers ---
 function $(id) { return document.getElementById(id); }
 
+let _errorTimer = null;
 function showError(msg) {
   const box = $('error-box');
   box.textContent = msg;
   box.style.display = 'block';
-  setTimeout(() => { box.style.display = 'none'; }, 8000);
+  if (_errorTimer) clearTimeout(_errorTimer);
+  _errorTimer = setTimeout(() => { box.style.display = 'none'; }, 8000);
+}
+function clearError() {
+  const box = $('error-box');
+  box.style.display = 'none';
+  box.textContent = '';
+  if (_errorTimer) { clearTimeout(_errorTimer); _errorTimer = null; }
 }
 
 function setLoading(on) {
@@ -315,23 +323,48 @@ function setLoading(on) {
   $('btn-extract').disabled = on;
 }
 
-function showTab(name) {
+function showTab(name, btn) {
   document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
   document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-  $('tab-' + name).style.display = 'block';
-  event.target.classList.add('active');
+  const content = $('tab-' + name);
+  if (content) content.style.display = 'block';
+  const activeBtn = btn || document.querySelector(`.tab[data-tab="${name}"]`);
+  if (activeBtn) activeBtn.classList.add('active');
 }
 
-// URLを検出してクリック可能なリンクに変換する
+// HTMLエスケープ（XSS防止）
+function escapeHtml(text) {
+  if (text == null) return '';
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// HTMLエスケープしてからURLをリンクに変換する
 function linkifyUrls(text) {
-  if (!text) return '';
+  if (text == null) return '';
+  const escaped = escapeHtml(text);
   const urlPattern = /(https?:\/\/[^\s<>"{}|\\^`\[\]]+)/g;
-  return text.replace(urlPattern, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+  return escaped.replace(urlPattern, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
 }
 
 function riskBadge(level) {
-  const labels = { low: '低', medium: '中', high: '高' };
-  return `<span class="badge badge-${level}">${labels[level] || level}</span>`;
+  // severity (low|medium|high), mental state (good|fair|poor), extraction (mild|moderate|severe|unknown)
+  const labels = {
+    low: '低', medium: '中', high: '高',
+    good: '良好', fair: '普通', poor: '不調',
+    mild: '軽度', moderate: '中等度', severe: '重度', unknown: '不明'
+  };
+  const classMap = {
+    low: 'low', medium: 'medium', high: 'high',
+    good: 'low', fair: 'medium', poor: 'high',
+    mild: 'low', moderate: 'medium', severe: 'high', unknown: 'medium'
+  };
+  const cls = classMap[level] || 'medium';
+  return `<span class="badge badge-${cls}">${labels[level] || level}</span>`;
 }
 
 function getProfile() {
@@ -378,8 +411,8 @@ function renderAnalysis(data) {
   if (data.mibyou_risk) {
     html += `<h3>未病リスク ${riskBadge(data.mibyou_risk.level)}</h3>`;
     html += `<p>${linkifyUrls(data.mibyou_risk.explanation)}</p>`;
-    if (data.mibyou_risk.areas.length) {
-      html += '<div>' + data.mibyou_risk.areas.map(a => `<span class="tag">${a}</span>`).join('') + '</div>';
+    if (data.mibyou_risk.areas && data.mibyou_risk.areas.length) {
+      html += '<div>' + data.mibyou_risk.areas.map(a => `<span class="tag">${escapeHtml(a)}</span>`).join('') + '</div>';
     }
     html += '<br>';
   }
@@ -388,7 +421,7 @@ function renderAnalysis(data) {
   if (data.physical_signs && data.physical_signs.length) {
     html += '<h3>身体的症状</h3><ul class="item-list">';
     for (const s of data.physical_signs) {
-      html += `<li><span class="item-label">${s.symptom}</span> ${riskBadge(s.severity)} ${linkifyUrls(s.note)}</li>`;
+      html += `<li><span class="item-label">${escapeHtml(s.symptom)}</span> ${riskBadge(s.severity)} ${linkifyUrls(s.note)}</li>`;
     }
     html += '</ul><br>';
   }
@@ -404,7 +437,7 @@ function renderAnalysis(data) {
     html += '<h3>生活習慣</h3><ul class="item-list">';
     for (const f of data.lifestyle_factors) {
       const cls = f.assessment === 'positive' ? 'badge-low' : f.assessment === 'negative' ? 'badge-high' : 'badge-medium';
-      html += `<li><span class="item-label">${f.factor}</span> <span class="badge ${cls}">${f.assessment}</span> ${linkifyUrls(f.note)}</li>`;
+      html += `<li><span class="item-label">${escapeHtml(f.factor)}</span> <span class="badge ${cls}">${escapeHtml(f.assessment)}</span> ${linkifyUrls(f.note)}</li>`;
     }
     html += '</ul><br>';
   }
@@ -436,7 +469,7 @@ function renderAdvice(data) {
     html += '<h3>優先アクション</h3><ul class="item-list">';
     for (const a of data.priority_actions) {
       const dcls = a.difficulty === 'easy' ? 'badge-low' : a.difficulty === 'hard' ? 'badge-high' : 'badge-medium';
-      html += `<li><span class="item-label">${a.action}</span> <span class="badge ${dcls}">${a.difficulty}</span><br><small>${linkifyUrls(a.reason)}</small></li>`;
+      html += `<li><span class="item-label">${escapeHtml(a.action)}</span> <span class="badge ${dcls}">${escapeHtml(a.difficulty)}</span><br><small>${linkifyUrls(a.reason)}</small></li>`;
     }
     html += '</ul><br>';
   }
@@ -444,7 +477,7 @@ function renderAdvice(data) {
   if (data.lifestyle_suggestions && data.lifestyle_suggestions.length) {
     html += '<h3>生活改善の提案</h3><ul class="item-list">';
     for (const s of data.lifestyle_suggestions) {
-      html += `<li><span class="item-label">${s.category}</span>: ${linkifyUrls(s.suggestion)} <span class="tag">${s.frequency}</span></li>`;
+      html += `<li><span class="item-label">${escapeHtml(s.category)}</span>: ${linkifyUrls(s.suggestion)} <span class="tag">${escapeHtml(s.frequency)}</span></li>`;
     }
     html += '</ul><br>';
   }
@@ -474,37 +507,37 @@ function renderExtraction(data) {
   if (data.symptoms && data.symptoms.length) {
     html += '<h3>症状</h3><ul class="item-list">';
     for (const s of data.symptoms) {
-      html += `<li><span class="item-label">${s.name}</span> ${riskBadge(s.severity)}`;
-      if (s.duration) html += ` (${s.duration})`;
+      html += `<li><span class="item-label">${escapeHtml(s.name)}</span> ${riskBadge(s.severity)}`;
+      if (s.duration) html += ` (${escapeHtml(s.duration)})`;
       html += '</li>';
     }
     html += '</ul><br>';
   }
 
   if (data.mood) {
-    html += `<h3>気分</h3><p>${data.mood.state}`;
-    if (data.mood.score !== null) html += ` (スコア: ${data.mood.score})`;
+    html += `<h3>気分</h3><p>${escapeHtml(data.mood.state)}`;
+    if (data.mood.score != null) html += ` (スコア: ${escapeHtml(data.mood.score)})`;
     html += '</p><br>';
   }
 
   if (data.sleep) {
-    html += `<h3>睡眠</h3><p>質: ${data.sleep.quality}`;
-    if (data.sleep.hours !== null) html += ` / ${data.sleep.hours}時間`;
+    html += `<h3>睡眠</h3><p>質: ${escapeHtml(data.sleep.quality)}`;
+    if (data.sleep.hours != null) html += ` / ${escapeHtml(data.sleep.hours)}時間`;
     html += '</p><br>';
   }
 
   if (data.meals && data.meals.length) {
     html += '<h3>食事</h3><ul class="item-list">';
     for (const m of data.meals) {
-      html += `<li><span class="item-label">${m.type}</span>: ${linkifyUrls(m.description)}</li>`;
+      html += `<li><span class="item-label">${escapeHtml(m.type)}</span>: ${linkifyUrls(m.description)}</li>`;
     }
     html += '</ul><br>';
   }
 
   if (data.exercise) {
     html += `<h3>運動</h3><p>${data.exercise.done ? '実施' : '未実施'}`;
-    if (data.exercise.type) html += ` - ${data.exercise.type}`;
-    if (data.exercise.duration_minutes) html += ` (${data.exercise.duration_minutes}分)`;
+    if (data.exercise.type) html += ` - ${escapeHtml(data.exercise.type)}`;
+    if (data.exercise.duration_minutes) html += ` (${escapeHtml(data.exercise.duration_minutes)}分)`;
     html += '</p><br>';
   }
 
@@ -529,7 +562,7 @@ async function analyzeDiary() {
   if (!entry.entry_date) { showError('日付を入力してください。'); return; }
 
   setLoading(true);
-  $('error-box').style.display = 'none';
+  clearError();
 
   try {
     // Step 1: Analyze
@@ -550,7 +583,7 @@ async function analyzeDiary() {
     // Show results
     $('results').classList.add('visible');
     // Activate analysis tab
-    document.querySelectorAll('.tab')[0].click();
+    showTab('analysis');
 
   } catch (e) {
     showError(e.message);
@@ -564,14 +597,14 @@ async function extractSymptoms() {
   if (!text) { showError('日記テキストを入力してください。'); return; }
 
   setLoading(true);
-  $('error-box').style.display = 'none';
+  clearError();
 
   try {
     const data = await apiPost('/extract-symptoms', { text });
     renderExtraction(data);
     $('results').classList.add('visible');
     // Switch to extraction tab
-    document.querySelectorAll('.tab')[2].click();
+    showTab('extraction');
   } catch (e) {
     showError(e.message);
   } finally {

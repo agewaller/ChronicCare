@@ -19,6 +19,14 @@ class TestHealthCheck:
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
 
+    async def test_ready(self, client: AsyncClient):
+        response = await client.get("/ready")
+        assert response.status_code == 200
+        body = response.json()
+        assert "status" in body
+        assert "api_key_configured" in body
+        assert isinstance(body["api_key_configured"], bool)
+
 
 class TestFrontend:
     async def test_index_page(self, client: AsyncClient):

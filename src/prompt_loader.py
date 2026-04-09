@@ -59,7 +59,7 @@ class PromptLoader:
             return self._manifest
 
         manifest_path = self._dir / "manifest.yaml"
-        with open(manifest_path) as f:
+        with open(manifest_path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
 
         self._manifest = {
@@ -81,7 +81,7 @@ class PromptLoader:
 
         entry = manifest[prompt_name]
         prompt_path = self._dir / entry.file
-        with open(prompt_path) as f:
+        with open(prompt_path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
 
         config = PromptConfig(

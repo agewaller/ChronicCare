@@ -8,13 +8,17 @@
 """
 
 import json
-from datetime import date
+import logging
+
+from pydantic import ValidationError
 
 from src.models.diary import DiaryEntry, UserProfile
 from src.models.analysis import AnalysisResult, AdviceResult, WeeklySummary
 from src.models.symptoms import ExtractedSymptoms
 from src.prompt_loader import PromptLoader
-from src.services.ai_client import AIClient
+from src.services.ai_client import AIClient, AIClientError
+
+logger = logging.getLogger(__name__)
 
 
 class DiaryService:
@@ -28,6 +32,10 @@ class DiaryService:
         self._prompts = prompt_loader or PromptLoader()
         self._ai = ai_client or AIClient()
 
+    def list_prompts(self) -> dict[str, str]:
+        """利用可能なプロンプト一覧を返す。"""
+        return self._prompts.list_prompts()
+
     async def analyze_entry(
         self, entry: DiaryEntry, profile: UserProfile
     ) -> AnalysisResult:
@@ -40,7 +48,7 @@ class DiaryService:
             },
         )
         raw = await self._ai.send(rendered)
-        return AnalysisResult.model_validate(raw)
+        return self._validate("analyze_diary", raw, AnalysisResult)
 
     async def generate_advice(
         self,
@@ -66,7 +74,7 @@ class DiaryService:
             },
         )
         raw = await self._ai.send(rendered)
-        return AdviceResult.model_validate(raw)
+        return self._validate("generate_advice", raw, AdviceResult)
 
     async def weekly_summary(
         self,
@@ -93,7 +101,7 @@ class DiaryService:
             },
         )
         raw = await self._ai.send(rendered)
-        return WeeklySummary.model_validate(raw)
+        return self._validate("summarize_weekly", raw, WeeklySummary)
 
     async def extract_symptoms(self, text: str) -> ExtractedSymptoms:
         """テキストから症状情報を抽出する。"""
@@ -102,4 +110,18 @@ class DiaryService:
             {"diary_text": text},
         )
         raw = await self._ai.send(rendered)
-        return ExtractedSymptoms.model_validate(raw)
+        return self._validate("extract_symptoms", raw, ExtractedSymptoms)
+
+    @staticmethod
+    def _validate(prompt_name: str, raw: dict, model_cls):
+        """AIレスポンスをモデルに検証する。スキーマ不一致は AIClientError としてラップ。"""
+        try:
+            return model_cls.model_validate(raw)
+        except ValidationError as e:
+            logger.warning(
+                "Validation failed for %s: %s", prompt_name, e
+            )
+            raise AIClientError(
+                f"AIレスポンスが期待する形式と一致しません ({prompt_name}): {e.error_count()} error(s)",
+                e,
+            )

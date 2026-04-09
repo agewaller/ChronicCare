@@ -117,4 +117,4 @@ async def list_prompts(
     service: DiaryService = Depends(get_diary_service),
 ):
     """利用可能なプロンプト一覧を取得する。"""
-    return service._prompts.list_prompts()
+    return service.list_prompts()

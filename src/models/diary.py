@@ -3,7 +3,7 @@
 プロンプトの内容には依存しない純粋なデータ構造。
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pydantic import BaseModel, Field
 
 
@@ -30,6 +30,10 @@ class UserProfile(BaseModel):
         return "\n".join(parts) if parts else "プロフィール情報なし"
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class DiaryEntry(BaseModel):
     """一日分の日記エントリ。"""
 
@@ -37,4 +41,4 @@ class DiaryEntry(BaseModel):
     user_id: str
     entry_date: date
     text: str
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=_utc_now)
