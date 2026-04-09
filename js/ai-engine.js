@@ -2,6 +2,26 @@
    AI Analysis Engine
    Handles AI model integration and prompt execution
    ============================================================ */
+
+// Google 翻訳プロキシURL生成 (translate.goog 形式)
+// 旧 translate.google.com/translate?u=... は廃止されており無限リダイレクトするため新形式を使う。
+// components.js でも同じ関数を定義しているが、読み込み順依存を避けるため重複定義。
+if (typeof makeTranslateUrl === 'undefined') {
+  var makeTranslateUrl = function(url) {
+    if (!url) return '';
+    try {
+      const u = new URL(url);
+      const hostDashed = u.hostname.replace(/-/g, '--').replace(/\./g, '-');
+      const newHost = hostDashed + '.translate.goog';
+      const translateParams = '_x_tr_sl=en&_x_tr_tl=ja&_x_tr_hl=ja';
+      const separator = u.search ? '&' : '?';
+      return `${u.protocol}//${newHost}${u.pathname}${u.search}${separator}${translateParams}${u.hash}`;
+    } catch (e) {
+      return url;
+    }
+  };
+}
+
 var AIEngine = class AIEngine {
   constructor() {
     this.apiEndpoints = {
@@ -313,10 +333,10 @@ var AIEngine = class AIEngine {
           date: article.pubdate || article.sortpubdate || '',
           doi: doi,
           url: pubmedUrl,
-          // Google Translate URL for the PubMed page (translate to Japanese)
-          translateUrl: `https://translate.google.com/translate?sl=en&tl=ja&u=${encodeURIComponent(pubmedUrl)}`,
+          // Google Translate proxy URL (新 translate.goog 形式)
+          translateUrl: makeTranslateUrl(pubmedUrl),
           doiUrl: doi ? `https://doi.org/${doi}` : '',
-          doiTranslateUrl: doi ? `https://translate.google.com/translate?sl=en&tl=ja&u=${encodeURIComponent('https://doi.org/' + doi)}` : '',
+          doiTranslateUrl: doi ? makeTranslateUrl('https://doi.org/' + doi) : '',
           summary: article.title
         };
       }).filter(Boolean);

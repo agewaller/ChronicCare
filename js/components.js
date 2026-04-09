@@ -3,6 +3,23 @@
    Reusable component renderers for the dashboard
    ============================================================ */
 
+// Google 翻訳プロキシURL生成 (translate.goog 形式)
+// 旧 translate.google.com/translate?u=... は Google により廃止され、
+// クリックすると無限リダイレクトループを起こすため新形式を使う。
+function makeTranslateUrl(url) {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    const hostDashed = u.hostname.replace(/-/g, '--').replace(/\./g, '-');
+    const newHost = hostDashed + '.translate.goog';
+    const translateParams = '_x_tr_sl=en&_x_tr_tl=ja&_x_tr_hl=ja';
+    const separator = u.search ? '&' : '?';
+    return `${u.protocol}//${newHost}${u.pathname}${u.search}${separator}${translateParams}${u.hash}`;
+  } catch (e) {
+    return url;
+  }
+}
+
 var Components = {
   // Health Score Gauge
   healthGauge(score, size = 180) {
@@ -139,7 +156,7 @@ var Components = {
     const doiUrl = research.doi && research.doi.startsWith('10.') ? `https://doi.org/${research.doi}` : '';
     const pubmedSearchUrl = `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(research.title.substring(0, 100))}`;
     const sourceUrl = research.url || doiUrl || pubmedSearchUrl;
-    const translateUrl = sourceUrl ? `https://translate.google.com/translate?sl=en&tl=ja&u=${encodeURIComponent(sourceUrl)}` : '';
+    const translateUrl = makeTranslateUrl(sourceUrl);
 
     return `
       <div class="card" style="margin-bottom:12px">
@@ -157,7 +174,7 @@ var Components = {
             <a href="${pubmedSearchUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-outline">PubMedで検索</a>
             ${translateUrl ? `<a href="${translateUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">日本語で読む</a>` : ''}
             ${doiUrl ? `<a href="${doiUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary">論文全文（DOI）</a>` : ''}
-            ${doiUrl ? `<a href="https://translate.google.com/translate?sl=en&tl=ja&u=${encodeURIComponent(doiUrl)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline">論文全文（日本語）</a>` : ''}
+            ${doiUrl ? `<a href="${makeTranslateUrl(doiUrl)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline">論文全文（日本語）</a>` : ''}
           </div>
         </div>
       </div>

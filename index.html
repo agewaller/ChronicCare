@@ -1174,10 +1174,10 @@ var CONFIG = {
 
   // AI Model Options
   AI_MODELS: [
-    { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI', description: 'OpenAI最新マルチモーダルモデル', default: true },
+    { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', provider: 'Anthropic', description: '最高精度・最強モデル（プロキシ設定が必要）', default: true },
     { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'Anthropic', description: '高速・高精度（プロキシ設定が必要）' },
-    { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', provider: 'Anthropic', description: '最高精度（プロキシ設定が必要）' },
     { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', provider: 'Anthropic', description: '高速・低コスト（プロキシ設定が必要）' },
+    { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI', description: 'OpenAI最新マルチモーダルモデル' },
     { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'Google', description: 'Google最新モデル' }
   ],
 
@@ -2295,10 +2295,14 @@ var Store = class Store {
 
       // Admin
       adminMode: false,
-      selectedModel: 'gpt-4o',
+      selectedModel: 'claude-opus-4-6',
       customPrompts: {},
       dashboardLayout: 'default',
       affiliateConfig: {},
+
+      // Nutrition log (per-day aggregated nutrition estimated by AI)
+      // entries: [{date: 'YYYY-MM-DD', calories, protein_g, fat_g, carbs_g, confidence, note}]
+      nutritionLog: [],
 
       // Notifications
       notifications: [],
@@ -2353,7 +2357,7 @@ var Store = class Store {
       'dashboardLayout', 'affiliateConfig', 'symptoms', 'vitals',
       'bloodTests', 'medications', 'supplements', 'meals', 'sleepData',
       'activityData', 'healthScore', 'analysisHistory', 'recommendations',
-      'actionItems', 'conversationHistory', 'textEntries', 'selectedDiseases', 'customDiseaseName', 'userProfile', 'calendarEvents', 'latestFeedback', 'cachedResearch'
+      'actionItems', 'conversationHistory', 'textEntries', 'selectedDiseases', 'customDiseaseName', 'userProfile', 'calendarEvents', 'latestFeedback', 'cachedResearch', 'nutritionLog'
     ];
     if (persistKeys.includes(key)) {
       try {
@@ -2371,7 +2375,7 @@ var Store = class Store {
       'dashboardLayout', 'affiliateConfig', 'symptoms', 'vitals',
       'bloodTests', 'medications', 'supplements', 'meals', 'sleepData',
       'activityData', 'healthScore', 'analysisHistory', 'recommendations',
-      'actionItems', 'conversationHistory', 'textEntries', 'selectedDiseases', 'customDiseaseName', 'userProfile', 'calendarEvents', 'latestFeedback', 'cachedResearch'
+      'actionItems', 'conversationHistory', 'textEntries', 'selectedDiseases', 'customDiseaseName', 'userProfile', 'calendarEvents', 'latestFeedback', 'cachedResearch', 'nutritionLog'
     ];
     keys.forEach(key => {
       try {
@@ -2462,6 +2466,38 @@ var Store = class Store {
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
   }
 
+  // 基礎代謝量 (kcal/日) を計算。Mifflin-St Jeor 式を使用。
+  // userProfile の age, height, weight, gender が必要。
+  // いずれか欠落時は null を返す。
+  calculateBMR() {
+    const p = this.get('userProfile') || {};
+    const age = parseFloat(p.age);
+    const height = parseFloat(p.height);
+    const weight = parseFloat(p.weight);
+    if (!age || !height || !weight) return null;
+    const base = 10 * weight + 6.25 * height - 5 * age;
+    if (p.gender === 'male' || p.gender === '男性') return Math.round(base + 5);
+    if (p.gender === 'female' || p.gender === '女性') return Math.round(base - 161);
+    return Math.round(base - 78); // その他は男女中間
+  }
+
+  // 栄養ログに1日分のエントリを追加/更新（同日は上書き）
+  upsertNutritionEntry(entry) {
+    if (!entry || !entry.date) return;
+    const log = (this.get('nutritionLog') || []).filter(e => e.date !== entry.date);
+    log.push({
+      date: entry.date,
+      calories: Math.round(entry.calories || 0),
+      protein_g: +(entry.protein_g || 0).toFixed(1),
+      fat_g: +(entry.fat_g || 0).toFixed(1),
+      carbs_g: +(entry.carbs_g || 0).toFixed(1),
+      confidence: entry.confidence || 'unknown',
+      note: entry.note || '',
+    });
+    log.sort((a, b) => a.date.localeCompare(b.date));
+    this.set('nutritionLog', log);
+  }
+
   // Clear all data
   clearAll() {
     localStorage.clear();
@@ -2496,7 +2532,7 @@ var AIEngine = class AIEngine {
 
   // Main analysis function
   async analyze(promptTemplate, userData, options = {}) {
-    const modelId = options.model || store.get('selectedModel') || 'claude-sonnet-4-6';
+    const modelId = options.model || store.get('selectedModel') || 'claude-opus-4-6';
     store.set('isAnalyzing', true);
 
     try {
@@ -2787,9 +2823,9 @@ var AIEngine = class AIEngine {
           doi: doi,
           url: pubmedUrl,
           // Google Translate URL for the PubMed page (translate to Japanese)
-          translateUrl: `https://translate.google.com/translate?sl=en&tl=ja&u=${encodeURIComponent(pubmedUrl)}`,
+          translateUrl: makeTranslateUrl(pubmedUrl),
           doiUrl: doi ? `https://doi.org/${doi}` : '',
-          doiTranslateUrl: doi ? `https://translate.google.com/translate?sl=en&tl=ja&u=${encodeURIComponent('https://doi.org/' + doi)}` : '',
+          doiTranslateUrl: doi ? makeTranslateUrl('https://doi.org/' + doi) : '',
           summary: article.title
         };
       }).filter(Boolean);
@@ -3379,6 +3415,23 @@ affiliateEngine.loadTracking();
    Reusable component renderers for the dashboard
    ============================================================ */
 
+// Google 翻訳プロキシURL生成 (translate.goog 形式)
+// 旧 translate.google.com/translate?u=... は Google により廃止され、
+// クリックすると無限リダイレクトループを起こすため新形式を使う。
+function makeTranslateUrl(url) {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    const hostDashed = u.hostname.replace(/-/g, '--').replace(/\./g, '-');
+    const newHost = hostDashed + '.translate.goog';
+    const translateParams = '_x_tr_sl=en&_x_tr_tl=ja&_x_tr_hl=ja';
+    const separator = u.search ? '&' : '?';
+    return `${u.protocol}//${newHost}${u.pathname}${u.search}${separator}${translateParams}${u.hash}`;
+  } catch (e) {
+    return url;
+  }
+}
+
 var Components = {
   // Health Score Gauge
   healthGauge(score, size = 180) {
@@ -3515,7 +3568,7 @@ var Components = {
     const doiUrl = research.doi && research.doi.startsWith('10.') ? `https://doi.org/${research.doi}` : '';
     const pubmedSearchUrl = `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(research.title.substring(0, 100))}`;
     const sourceUrl = research.url || doiUrl || pubmedSearchUrl;
-    const translateUrl = sourceUrl ? `https://translate.google.com/translate?sl=en&tl=ja&u=${encodeURIComponent(sourceUrl)}` : '';
+    const translateUrl = makeTranslateUrl(sourceUrl);
 
     return `
       <div class="card" style="margin-bottom:12px">
@@ -3533,7 +3586,7 @@ var Components = {
             <a href="${pubmedSearchUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-outline">PubMedで検索</a>
             ${translateUrl ? `<a href="${translateUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">日本語で読む</a>` : ''}
             ${doiUrl ? `<a href="${doiUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary">論文全文（DOI）</a>` : ''}
-            ${doiUrl ? `<a href="https://translate.google.com/translate?sl=en&tl=ja&u=${encodeURIComponent(doiUrl)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline">論文全文（日本語）</a>` : ''}
+            ${doiUrl ? `<a href="${makeTranslateUrl(doiUrl)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline">論文全文（日本語）</a>` : ''}
           </div>
         </div>
       </div>
@@ -4965,6 +5018,9 @@ var App = class App {
   afterRender(page) {
     if (page === 'dashboard') {
       this.initDashboardCharts();
+      // Nutrition charts are inside a collapsed section; only render if expanded
+      // or render with a small delay to pick up after any visibility change.
+      setTimeout(() => this.initNutritionCharts(), 100);
       setTimeout(() => this.loadDashResearch(), 300);
       setTimeout(() => this.loadActionRecommendations(), 600);
     }
@@ -5083,7 +5139,7 @@ var App = class App {
     const result = document.getElementById('api-test-result');
     if (result) result.innerHTML = Components.loading('接続テスト中...');
 
-    const model = store.get('selectedModel') || 'claude-sonnet-4-6';
+    const model = store.get('selectedModel') || 'claude-opus-4-6';
     const apiKey = aiEngine.getApiKey(model);
 
     if (!apiKey) {
@@ -7507,6 +7563,153 @@ G) その他
     Components.showToast('デモデータを生成しました', 'success');
     this.navigate('dashboard');
   }
+
+  // --- 栄養グラフ描画（BMR / カロリー / PFC） ---
+  initNutritionCharts() {
+    const nlog = store.get('nutritionLog') || [];
+    if (nlog.length === 0 || typeof Chart === 'undefined') return;
+
+    const bmr = store.calculateBMR();
+    const labels = nlog.map(e => {
+      const d = new Date(e.date);
+      return `${d.getMonth() + 1}/${d.getDate()}`;
+    });
+
+    // カロリーチャート
+    const calCtx = document.getElementById('nutrition-calorie-chart');
+    if (calCtx) {
+      if (this.chartInstances.nutritionCal) this.chartInstances.nutritionCal.destroy();
+      const datasets = [
+        {
+          label: '摂取カロリー',
+          data: nlog.map(e => e.calories),
+          borderColor: '#22c55e',
+          backgroundColor: 'rgba(34,197,94,0.15)',
+          tension: 0.3,
+          fill: true,
+          pointRadius: 4,
+        }
+      ];
+      if (bmr) {
+        datasets.push({
+          label: '基礎代謝 (BMR)',
+          data: nlog.map(() => bmr),
+          borderColor: '#ef4444',
+          borderDash: [6, 4],
+          pointRadius: 0,
+          fill: false,
+          borderWidth: 2,
+        });
+      }
+      this.chartInstances.nutritionCal = new Chart(calCtx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: '#8896b0', font: { size: 11 } } } },
+          scales: {
+            y: { beginAtZero: false, ticks: { color: '#8896b0', callback: (v) => v.toLocaleString() } },
+            x: { grid: { display: false }, ticks: { color: '#8896b0' } }
+          }
+        }
+      });
+    }
+
+    // PFCチャート (stacked bar)
+    const pfcCtx = document.getElementById('nutrition-pfc-chart');
+    if (pfcCtx) {
+      if (this.chartInstances.nutritionPfc) this.chartInstances.nutritionPfc.destroy();
+      this.chartInstances.nutritionPfc = new Chart(pfcCtx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            { label: 'タンパク質 (P)', data: nlog.map(e => e.protein_g), backgroundColor: '#3b82f6' },
+            { label: '脂質 (F)', data: nlog.map(e => e.fat_g), backgroundColor: '#f59e0b' },
+            { label: '炭水化物 (C)', data: nlog.map(e => e.carbs_g), backgroundColor: '#10b981' },
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: '#8896b0', font: { size: 11 } } } },
+          scales: {
+            x: { stacked: true, grid: { display: false }, ticks: { color: '#8896b0' } },
+            y: { stacked: true, beginAtZero: true, ticks: { color: '#8896b0', callback: (v) => v + ' g' } }
+          }
+        }
+      });
+    }
+  }
+
+  // 今日の日記テキストから AI で栄養を推定して nutritionLog に保存
+  async extractTodayNutrition() {
+    const today = new Date().toISOString().split('T')[0];
+    const textEntries = store.get('textEntries') || [];
+    const todayEntries = textEntries.filter(e => {
+      const d = e.timestamp ? new Date(e.timestamp).toISOString().split('T')[0] : null;
+      return d === today;
+    });
+    if (todayEntries.length === 0) {
+      Components.showToast('今日の記録がありません。先に食事内容を入力してください。', 'error');
+      return;
+    }
+
+    const apiKey = aiEngine.getApiKey(store.get('selectedModel'));
+    if (!apiKey) {
+      Components.showToast('APIキーが設定されていません（設定画面で登録してください）', 'error');
+      return;
+    }
+
+    Components.showToast('AIが栄養を推定中...', 'info');
+    const combined = todayEntries.map(e => e.content).join('\n---\n');
+    const prompt = `以下は今日の日記です。食事に関する記述から1日分の合計栄養を推定し、必ず以下のJSON形式だけで回答してください。食事の記載がない場合は calories:0 としてください。
+
+【日記】
+${combined}
+
+【出力フォーマット】
+{
+  "calories": 0,
+  "protein_g": 0,
+  "fat_g": 0,
+  "carbs_g": 0,
+  "confidence": "low|medium|high",
+  "note": "推定の前提を簡潔に"
+}`;
+
+    try {
+      const response = await aiEngine.callModel(store.get('selectedModel'), prompt, { maxTokens: 1024 });
+      const text = typeof response === 'string' ? response : JSON.stringify(response);
+      // Extract JSON from response
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error('AIレスポンスからJSONを抽出できませんでした');
+      const data = JSON.parse(match[0]);
+      store.upsertNutritionEntry({
+        date: today,
+        calories: data.calories || 0,
+        protein_g: data.protein_g || 0,
+        fat_g: data.fat_g || 0,
+        carbs_g: data.carbs_g || 0,
+        confidence: data.confidence || 'unknown',
+        note: data.note || '',
+      });
+      Components.showToast(`栄養を記録しました（${data.calories || 0} kcal）`, 'success');
+      // Re-render dashboard
+      if (this.currentPage === 'dashboard') this.navigate('dashboard');
+    } catch (err) {
+      console.error('Nutrition extraction failed:', err);
+      Components.showToast('栄養の推定に失敗しました: ' + err.message, 'error');
+    }
+  }
+
+  clearNutritionLog() {
+    if (!confirm('栄養ログをすべて削除します。よろしいですか？')) return;
+    store.set('nutritionLog', []);
+    Components.showToast('栄養ログを削除しました', 'success');
+    if (this.currentPage === 'dashboard') this.navigate('dashboard');
+  }
 };
 
 var app = new App();
@@ -7938,6 +8141,77 @@ App.prototype.render_dashboard = function() {
   </div>
   ` : ''}
 
+  <!-- Nutrition Dashboard: BMR / Calories / PFC -->
+  ${(() => {
+    const bmr = store.calculateBMR();
+    const nlog = store.get('nutritionLog') || [];
+    const today = new Date().toISOString().split('T')[0];
+    const todayEntry = nlog.find(e => e.date === today);
+    const last7 = nlog.slice(-7);
+    const avgCal = last7.length > 0 ? Math.round(last7.reduce((s, e) => s + (e.calories || 0), 0) / last7.length) : null;
+    return `
+    <div style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:10px 0"
+        onclick="var c=document.getElementById('dash-nutrition');var opening=c.style.display==='none';c.style.display=opening?'block':'none';this.querySelector('.arrow').textContent=opening?'▾':'▸';if(opening)setTimeout(()=>app.initNutritionCharts(),30)">
+        <h3 style="font-size:15px;font-weight:600">栄養 / PFCバランス</h3>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:12px;color:var(--text-secondary)">
+            ${bmr ? `BMR ${bmr.toLocaleString()} kcal` : 'BMR 未設定'}
+            ${todayEntry ? ` / 今日 ${todayEntry.calories.toLocaleString()} kcal` : ''}
+          </span>
+          <span class="arrow" style="font-size:14px;color:var(--text-muted)">${nlog.length > 0 ? '▾' : '▸'}</span>
+        </div>
+      </div>
+      <div id="dash-nutrition" style="display:${nlog.length > 0 ? 'block' : 'none'}">
+        <!-- Metrics -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:8px;margin-bottom:10px">
+          <div style="background:var(--bg-card);border-left:3px solid var(--accent);padding:10px 12px;border-radius:6px">
+            <div style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase">基礎代謝 BMR</div>
+            <div style="font-size:18px;font-weight:700;color:var(--accent)">${bmr ? bmr.toLocaleString() : '--'}</div>
+            <div style="font-size:10px;color:var(--text-muted)">${bmr ? 'kcal / 日' : '身長・体重を設定'}</div>
+          </div>
+          <div style="background:var(--bg-card);border-left:3px solid var(--success);padding:10px 12px;border-radius:6px">
+            <div style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase">今日の摂取</div>
+            <div style="font-size:18px;font-weight:700;color:var(--success)">${todayEntry ? todayEntry.calories.toLocaleString() : '--'}</div>
+            <div style="font-size:10px;color:var(--text-muted)">${todayEntry && bmr ? (todayEntry.calories - bmr >= 0 ? '+' : '') + (todayEntry.calories - bmr).toLocaleString() + ' vs BMR' : 'kcal'}</div>
+          </div>
+          <div style="background:var(--bg-card);border-left:3px solid var(--warning);padding:10px 12px;border-radius:6px">
+            <div style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase">7日平均</div>
+            <div style="font-size:18px;font-weight:700;color:var(--warning)">${avgCal != null ? avgCal.toLocaleString() : '--'}</div>
+            <div style="font-size:10px;color:var(--text-muted)">kcal / 日</div>
+          </div>
+          <div style="background:var(--bg-card);border-left:3px solid var(--info);padding:10px 12px;border-radius:6px">
+            <div style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase">記録日数</div>
+            <div style="font-size:18px;font-weight:700;color:var(--info)">${nlog.length}</div>
+            <div style="font-size:10px;color:var(--text-muted)">日分の履歴</div>
+          </div>
+        </div>
+
+        <!-- Calorie chart -->
+        <div class="card" style="margin-bottom:8px">
+          <div class="card-header" style="padding:8px 14px"><span class="card-title" style="font-size:13px">摂取カロリー vs 基礎代謝</span></div>
+          <div class="card-body" style="height:220px">
+            ${nlog.length > 0 ? '<canvas id="nutrition-calorie-chart"></canvas>' : '<div style="padding:40px 20px;text-align:center;color:var(--text-muted);font-size:12px">データがありません。日記に食事内容を書いて「送信」を押すと、AIが栄養を推定して記録します。</div>'}
+          </div>
+        </div>
+
+        <!-- PFC chart -->
+        <div class="card" style="margin-bottom:8px">
+          <div class="card-header" style="padding:8px 14px"><span class="card-title" style="font-size:13px">PFCバランス（タンパク質/脂質/炭水化物 g）</span></div>
+          <div class="card-body" style="height:220px">
+            ${nlog.length > 0 ? '<canvas id="nutrition-pfc-chart"></canvas>' : '<div style="padding:40px 20px;text-align:center;color:var(--text-muted);font-size:12px">データがありません。</div>'}
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+          <button class="btn btn-sm btn-outline" onclick="app.extractTodayNutrition()">今日の食事から栄養を推定</button>
+          ${nlog.length > 0 ? '<button class="btn btn-sm btn-outline" onclick="app.clearNutritionLog()">履歴をクリア</button>' : ''}
+        </div>
+      </div>
+    </div>
+    `;
+  })()}
+
   <!-- 7. Full Timeline (collapsible) -->
   ${totalEntries > 0 ? (() => {
     const allTL = (store.get('textEntries') || []).slice().reverse();
@@ -8150,7 +8424,7 @@ App.prototype.render_data_input = function() {
 // AI Analysis Page
 App.prototype.render_analysis = function() {
   const prompts = store.get('customPrompts') || DEFAULT_PROMPTS;
-  const model = store.get('selectedModel') || 'claude-sonnet-4-6';
+  const model = store.get('selectedModel') || 'claude-opus-4-6';
   const isAnalyzing = store.get('isAnalyzing');
 
   const modelOpts = CONFIG.AI_MODELS.map(m =>
@@ -8756,7 +9030,7 @@ App.prototype.render_integrations = function() {
 
 // Admin Page
 App.prototype.render_admin = function() {
-  const model = store.get('selectedModel') || 'claude-sonnet-4-6';
+  const model = store.get('selectedModel') || 'claude-opus-4-6';
   // Merge: DEFAULT_PROMPTS as base, user customPrompts override
   const userPrompts = store.get('customPrompts') || {};
   const prompts = { ...DEFAULT_PROMPTS, ...userPrompts };

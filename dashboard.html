@@ -2353,7 +2353,7 @@ var Store = class Store {
       'dashboardLayout', 'affiliateConfig', 'symptoms', 'vitals',
       'bloodTests', 'medications', 'supplements', 'meals', 'sleepData',
       'activityData', 'healthScore', 'analysisHistory', 'recommendations',
-      'actionItems', 'conversationHistory', 'textEntries', 'selectedDiseases', 'customDiseaseName', 'userProfile', 'calendarEvents', 'latestFeedback', 'cachedResearch'
+      'actionItems', 'conversationHistory', 'textEntries', 'selectedDiseases', 'customDiseaseName', 'userProfile', 'calendarEvents', 'latestFeedback', 'cachedResearch', 'nutritionLog'
     ];
     if (persistKeys.includes(key)) {
       try {
@@ -2371,7 +2371,7 @@ var Store = class Store {
       'dashboardLayout', 'affiliateConfig', 'symptoms', 'vitals',
       'bloodTests', 'medications', 'supplements', 'meals', 'sleepData',
       'activityData', 'healthScore', 'analysisHistory', 'recommendations',
-      'actionItems', 'conversationHistory', 'textEntries', 'selectedDiseases', 'customDiseaseName', 'userProfile', 'calendarEvents', 'latestFeedback', 'cachedResearch'
+      'actionItems', 'conversationHistory', 'textEntries', 'selectedDiseases', 'customDiseaseName', 'userProfile', 'calendarEvents', 'latestFeedback', 'cachedResearch', 'nutritionLog'
     ];
     keys.forEach(key => {
       try {
@@ -2496,7 +2496,7 @@ var AIEngine = class AIEngine {
 
   // Main analysis function
   async analyze(promptTemplate, userData, options = {}) {
-    const modelId = options.model || store.get('selectedModel') || 'claude-sonnet-4-6';
+    const modelId = options.model || store.get('selectedModel') || 'claude-opus-4-6';
     store.set('isAnalyzing', true);
 
     try {
@@ -2786,10 +2786,10 @@ var AIEngine = class AIEngine {
           date: article.pubdate || article.sortpubdate || '',
           doi: doi,
           url: pubmedUrl,
-          // Google Translate URL for the PubMed page (translate to Japanese)
-          translateUrl: `https://translate.google.com/translate?sl=en&tl=ja&u=${encodeURIComponent(pubmedUrl)}`,
+          // Google Translate proxy URL (新 translate.goog 形式)
+          translateUrl: makeTranslateUrl(pubmedUrl),
           doiUrl: doi ? `https://doi.org/${doi}` : '',
-          doiTranslateUrl: doi ? `https://translate.google.com/translate?sl=en&tl=ja&u=${encodeURIComponent('https://doi.org/' + doi)}` : '',
+          doiTranslateUrl: doi ? makeTranslateUrl('https://doi.org/' + doi) : '',
           summary: article.title
         };
       }).filter(Boolean);
@@ -3379,6 +3379,23 @@ affiliateEngine.loadTracking();
    Reusable component renderers for the dashboard
    ============================================================ */
 
+// Google 翻訳プロキシURL生成 (translate.goog 形式)
+// 旧 translate.google.com/translate?u=... は Google により廃止され、
+// クリックすると無限リダイレクトループを起こすため新形式を使う。
+function makeTranslateUrl(url) {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    const hostDashed = u.hostname.replace(/-/g, '--').replace(/\./g, '-');
+    const newHost = hostDashed + '.translate.goog';
+    const translateParams = '_x_tr_sl=en&_x_tr_tl=ja&_x_tr_hl=ja';
+    const separator = u.search ? '&' : '?';
+    return `${u.protocol}//${newHost}${u.pathname}${u.search}${separator}${translateParams}${u.hash}`;
+  } catch (e) {
+    return url;
+  }
+}
+
 var Components = {
   // Health Score Gauge
   healthGauge(score, size = 180) {
@@ -3515,7 +3532,7 @@ var Components = {
     const doiUrl = research.doi && research.doi.startsWith('10.') ? `https://doi.org/${research.doi}` : '';
     const pubmedSearchUrl = `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(research.title.substring(0, 100))}`;
     const sourceUrl = research.url || doiUrl || pubmedSearchUrl;
-    const translateUrl = sourceUrl ? `https://translate.google.com/translate?sl=en&tl=ja&u=${encodeURIComponent(sourceUrl)}` : '';
+    const translateUrl = makeTranslateUrl(sourceUrl);
 
     return `
       <div class="card" style="margin-bottom:12px">
@@ -3533,7 +3550,7 @@ var Components = {
             <a href="${pubmedSearchUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-outline">PubMedで検索</a>
             ${translateUrl ? `<a href="${translateUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">日本語で読む</a>` : ''}
             ${doiUrl ? `<a href="${doiUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary">論文全文（DOI）</a>` : ''}
-            ${doiUrl ? `<a href="https://translate.google.com/translate?sl=en&tl=ja&u=${encodeURIComponent(doiUrl)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline">論文全文（日本語）</a>` : ''}
+            ${doiUrl ? `<a href="${makeTranslateUrl(doiUrl)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline">論文全文（日本語）</a>` : ''}
           </div>
         </div>
       </div>
@@ -5083,7 +5100,7 @@ var App = class App {
     const result = document.getElementById('api-test-result');
     if (result) result.innerHTML = Components.loading('接続テスト中...');
 
-    const model = store.get('selectedModel') || 'claude-sonnet-4-6';
+    const model = store.get('selectedModel') || 'claude-opus-4-6';
     const apiKey = aiEngine.getApiKey(model);
 
     if (!apiKey) {
@@ -8150,7 +8167,7 @@ App.prototype.render_data_input = function() {
 // AI Analysis Page
 App.prototype.render_analysis = function() {
   const prompts = store.get('customPrompts') || DEFAULT_PROMPTS;
-  const model = store.get('selectedModel') || 'claude-sonnet-4-6';
+  const model = store.get('selectedModel') || 'claude-opus-4-6';
   const isAnalyzing = store.get('isAnalyzing');
 
   const modelOpts = CONFIG.AI_MODELS.map(m =>
@@ -8756,7 +8773,7 @@ App.prototype.render_integrations = function() {
 
 // Admin Page
 App.prototype.render_admin = function() {
-  const model = store.get('selectedModel') || 'claude-sonnet-4-6';
+  const model = store.get('selectedModel') || 'claude-opus-4-6';
   // Merge: DEFAULT_PROMPTS as base, user customPrompts override
   const userPrompts = store.get('customPrompts') || {};
   const prompts = { ...DEFAULT_PROMPTS, ...userPrompts };
