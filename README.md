@@ -9,7 +9,8 @@ AI によるプロンプト駆動型 **未病（みびょう）** 予防ヘル�
 
 - **プロンプトとプログラムの完全分離**: すべての AI プロンプトは `prompts/` ディレクトリに YAML ファイルとして独立管理され、プログラムロジックから切り離されています
 - **型安全**: Pydantic v2 による厳格なスキーマ検証
-- **Claude API**: Anthropic の最新モデル (Claude Sonnet 4.6 / Haiku 4.5) を使用
+- **マルチプロバイダーAI対応**: Anthropic Claude / OpenAI GPT / Google Gemini を自動振り分け
+  - `claude-*`, `gpt-*` / `o1-*` / `o3-*`, `gemini-*` というモデル名だけで切り替え可能
 - **日本語ファースト**: すべてのプロンプト・UI が日本語
 
 ## アーキテクチャ
@@ -80,13 +81,23 @@ pip install -e '.[dev]'
 
 ```bash
 cp .env.example .env
-# .env を編集し ANTHROPIC_API_KEY を入力
+# .env を編集して使いたいプロバイダーのキーを入力
 ```
+
+必要なキーは使用するモデルによって変わります（少なくとも1つ必要）：
+
+| プロバイダー | 環境変数 | 発行ページ |
+|---|---|---|
+| Anthropic Claude | `ANTHROPIC_API_KEY` | https://console.anthropic.com/ |
+| OpenAI GPT | `OPENAI_API_KEY` | https://platform.openai.com/api-keys |
+| Google Gemini | `GOOGLE_API_KEY` | https://aistudio.google.com/app/apikey |
 
 または直接 export：
 
 ```bash
 export ANTHROPIC_API_KEY='sk-ant-...'
+export OPENAI_API_KEY='sk-...'
+export GOOGLE_API_KEY='AIza...'
 ```
 
 ### 3. サーバー起動
@@ -123,8 +134,8 @@ API ドキュメント（Swagger UI）: [http://localhost:8000/docs](http://loca
 プロンプトはすべて `prompts/*.yaml` にあります。各ファイルは以下の構造：
 
 ```yaml
-model: claude-sonnet-4-6
-max_tokens: 1024
+model: claude-opus-4-6
+max_tokens: 2048
 temperature: 0.3
 system: |
   システムプロンプト（AI の役割定義）
@@ -133,9 +144,35 @@ user_template: |
   変数は {{ variable_name }} で埋め込む
 ```
 
-新しいプロンプトを追加する場合は `prompts/manifest.yaml` に登録し、
-必要な `input_variables` を宣言してください。プログラム側のコードを変更せずに
-プロンプトの差し替えが可能です。
+### モデルの切り替え（マルチプロバイダー）
+
+`model:` フィールドにモデル名を書くだけで、使用するプロバイダーが自動判定されます。
+コード変更は一切不要です：
+
+| モデル例 | プロバイダー | 用途 |
+|---|---|---|
+| `claude-opus-4-6` | Anthropic | **現在のデフォルト**。最高精度の深い分析・推論 |
+| `claude-sonnet-4-6` | Anthropic | 高速・高精度バランス |
+| `claude-haiku-4-5-20251001` | Anthropic | 超高速・低コスト（簡単な抽出向け）|
+| `gpt-4o` | OpenAI | マルチモーダル、JSON出力対応 |
+| `gpt-4o-mini` | OpenAI | 高速・低コスト |
+| `o1`, `o3` | OpenAI | 高度な推論（temperature 非対応）|
+| `gemini-2.5-pro` | Google | 1M トークンの超長文対応 |
+| `gemini-2.5-flash` | Google | 高速・低コスト |
+
+### 現在のデフォルトモデル
+
+| プロンプト | モデル | 理由 |
+|---|---|---|
+| `analyze_diary` | `claude-opus-4-6` | 複雑な症状分析・未病リスク判定 |
+| `generate_advice` | `claude-opus-4-6` | 質の高いパーソナライズアドバイス |
+| `summarize_weekly` | `claude-opus-4-6` | 週間データの統合的分析 |
+| `extract_symptoms` | `claude-sonnet-4-6` | 構造化抽出（速度重視）|
+
+### 新しいプロンプトの追加
+
+`prompts/manifest.yaml` に登録し、必要な `input_variables` を宣言してください。
+プログラム側のコードを変更せずにプロンプトの差し替え・追加が可能です。
 
 ## 本番運用上の注意
 

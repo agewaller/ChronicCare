@@ -24,8 +24,12 @@ class TestHealthCheck:
         assert response.status_code == 200
         body = response.json()
         assert "status" in body
+        assert "providers" in body
+        providers = body["providers"]
+        assert set(providers.keys()) == {"anthropic", "openai", "google"}
+        assert all(isinstance(v, bool) for v in providers.values())
+        # 後方互換フィールド
         assert "api_key_configured" in body
-        assert isinstance(body["api_key_configured"], bool)
 
 
 class TestFrontend:

@@ -18,15 +18,33 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+PROVIDER_KEYS = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "google": "GOOGLE_API_KEY",
+}
+
+
+def _provider_key_status() -> dict[str, bool]:
+    return {
+        provider: bool(os.environ.get(env_var))
+        for provider, env_var in PROVIDER_KEYS.items()
+    }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    status = _provider_key_status()
+    active = [p for p, ok in status.items() if ok]
+    if not active:
         logger.warning(
-            "ANTHROPIC_API_KEY is not set. AI endpoints will return 502 errors."
+            "No AI provider API keys set. AI endpoints will return 502 errors. "
+            "Set at least one of: %s",
+            ", ".join(PROVIDER_KEYS.values()),
         )
     else:
-        logger.info("ANTHROPIC_API_KEY detected.")
+        logger.info("AI providers available: %s", ", ".join(active))
     logger.info("未病ダイアリー API starting up.")
     yield
     # Shutdown
@@ -59,9 +77,12 @@ async def health_check():
 
 @app.get("/ready")
 async def readiness_check():
-    """AI APIキーが設定されているかを含む、準備完了状態を返す。"""
-    api_key_set = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    """各AIプロバイダーのAPIキー設定状態を含む、準備完了状態を返す。"""
+    providers = _provider_key_status()
+    any_set = any(providers.values())
     return {
-        "status": "ok" if api_key_set else "degraded",
-        "api_key_configured": api_key_set,
+        "status": "ok" if any_set else "degraded",
+        "providers": providers,
+        # 後方互換: 旧クライアントが api_key_configured を参照するため保持
+        "api_key_configured": providers["anthropic"],
     }
